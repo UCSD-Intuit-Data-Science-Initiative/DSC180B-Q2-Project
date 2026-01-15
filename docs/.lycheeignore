@@ -1,0 +1,12 @@
+# Ignore localhost during link checking
+http://127.0.0.1:*
+http://localhost:*
+
+# Ignore mailto links
+mailto:*
+
+# Ignore repository-relative file references that are valid in source docs but
+# unresolved in the generated static site scanned by lychee
+file:///README.md
+file:///scripts/run_pipeline.py
+file:///tests/unit

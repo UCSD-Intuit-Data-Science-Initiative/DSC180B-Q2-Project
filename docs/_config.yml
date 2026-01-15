@@ -1,0 +1,41 @@
+# GitHub Pages (Jekyll) configuration using Just the Docs theme
+remote_theme: just-the-docs/just-the-docs
+
+# Site metadata
+title: Python Data Science Template
+description: UCSD Intuit Capstone scaffold
+
+# UX
+search_enabled: true
+heading_anchors: true
+back_to_top: true
+back_to_top_text: Back to top
+color_scheme: light
+
+# Links in header
+aux_links:
+  "GitHub Repository": "https://github.com/UCSD-Intuit-Data-Science-Initiative/UCSD-Intuit-DS-Capstone-project-template"
+
+# Footer
+footer_content: "© <span id=\"current-year\">2025</span> UC San Diego - Data Science Capstones<script>document.addEventListener('DOMContentLoaded',function(){const e=document.getElementById('current-year');e&&(e.textContent=new Date().getFullYear())});</script>"
+
+# Markdown engine
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+  syntax_highlighter: rouge
+
+# Plugins
+plugins:
+  - jekyll-remote-theme
+
+# Exclude non-site files
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - README.md
+
+# Navigation order (Just the Docs auto-builds nav from front matter)
+# Individual pages declare nav_order in their front matter.

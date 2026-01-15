@@ -1,0 +1,62 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+.env
+
+# Poetry
+poetry.toml
+
+# Logs
+*.log
+
+# Testing
+.pytest_cache/
+.tox/
+.coverage*
+coverage.xml
+coverage/
+htmlcov/
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.code-workspace
+
+# Data directories
+data/raw/
+data/processed/
+data/interim/
+data/external/
+
+# Models and reports
+models/
+reports/
+
+# Documentation build artifacts
+docs/_site/
+
+# OS files
+.DS_Store
+Thumbs.db

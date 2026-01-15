@@ -1,0 +1,6 @@
+*
+!.gitignore
+!raw/
+!processed/
+raw/*
+processed/*

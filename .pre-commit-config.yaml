@@ -1,0 +1,49 @@
+# Description
+#    This file summarizes the set of checks that pre-commit will perform
+#    prior to any commit.
+
+default_stages: [commit, manual]
+
+# Repositories to use
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml # Checks yaml files for parseable syntax.
+      - id: check-json # Checks json files for parseable syntax.
+      - id: check-added-large-files
+      - id: check-toml
+      - id: check-docstring-first
+      - id: check-case-conflict # Check for files that would conflict in case-insensitive filesystems
+      - id: check-merge-conflict # Check for files that contain merge conflict strings.
+      - id: debug-statements # Check for debugger imports and py37+ `breakpoint()` calls in python source.
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+  - repo: https://github.com/PyCQA/autoflake
+    rev: v2.3.1
+    hooks:
+      - id: autoflake
+        args:
+          - --in-place
+          - --remove-all-unused-imports
+          - --remove-unused-variables
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - pandas==2.3.3
+          - numpy==1.26.4
+          - matplotlib==3.10.6
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace

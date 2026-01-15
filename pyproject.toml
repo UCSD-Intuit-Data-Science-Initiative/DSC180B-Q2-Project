@@ -1,0 +1,52 @@
+[project]
+name = "project-template"
+version = "0.1.0"
+description = "Python data science template"
+authors = [
+    {name = "UCSD Intuit DS Capstone Team"}
+]
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "numpy (>=1.26,<2.0)",
+    "pandas (>=2.2,<3.0)",
+    "matplotlib (>=3.8,<4.0)",
+    "loguru (>=0.7,<0.8)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+packages = [
+    { include = "main_module", from = "src" }
+]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.3"
+ruff = "^0.7.1"
+mypy = "^1.11.2"
+tox = "^4.17"
+pre-commit = "^3.8"
+types-pytz = "^2025.2.0.0"
+pandas-stubs = "^2.2.2.240807"
+autoflake = "^2.3.1"
+pytest-cov = "^5.0.0"
+
+[tool.ruff]
+line-length = 79
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.isort]
+force-single-line = false
+split-on-trailing-comma = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
