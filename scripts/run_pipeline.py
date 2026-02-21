@@ -1,6 +1,6 @@
 """
 Run the full workforce optimization pipeline:
-  1. Train the demand forecasting model (CallDemandForecaster from scripts/)
+  1. Train the demand forecasting model (HybridForecaster)
   2. Forecast demand for a target date
   3. Feed predictions into PerformanceEmulator + SupplyOptimizer
   4. Print staffing recommendations
@@ -12,20 +12,21 @@ Usage:
 
 import sys
 import pandas as pd
+from pathlib import Path
 
-# Scripts folder imports (the group's forecasting models)
-from demand_forecasting_model import CallDemandForecaster
-
-# Add src to path so we can import main_module
-sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "src"))
+# Add src to the Python path so main_module is importable
+_SRC = Path(__file__).resolve().parent.parent / "src"
+sys.path.insert(0, str(_SRC))
 
 from main_module.workforce import (
-    PerformanceEmulator,
+    HybridForecaster,
+    CallCenterEmulator,
+    EmulatorConfig,
     SupplyOptimizer,
     OptimizationConstraints,
 )
 
-DATA_PATH = "mock_intuit_2year_data.csv"
+DATA_PATH = str(Path(__file__).resolve().parent.parent / "data" / "interim" / "mock_intuit_2year_data.csv")
 
 
 def main():
@@ -36,8 +37,8 @@ def main():
     print("STEP 1: TRAINING DEMAND FORECASTING MODEL")
     print("=" * 70)
 
-    forecaster = CallDemandForecaster(model_type="ensemble")
-    metrics, feature_importance = forecaster.train(DATA_PATH, test_year=2025)
+    forecaster = HybridForecaster()
+    forecaster.train(DATA_PATH, test_year=2025, tune_hyperparameters=True, n_trials=10)
 
     # ---------------------------------------------------------------
     # Step 2: Forecast demand for a target date
@@ -49,6 +50,14 @@ def main():
     print("=" * 70)
 
     demand_df = forecaster.predict_day(target_date)
+
+    # HybridForecaster doesn't include time/is_open columns — derive them
+    demand_df["time"] = demand_df["interval_start"].dt.strftime("%H:%M")
+    demand_df["is_open"] = (
+        (demand_df["interval_start"].dt.hour >= 5) &
+        (demand_df["interval_start"].dt.hour < 17) &
+        (demand_df["interval_start"].dt.dayofweek < 5)
+    )
 
     # Filter to open intervals with predicted calls > 0
     open_intervals = demand_df[demand_df["is_open"] & (demand_df["predicted_calls"] > 0)]
@@ -70,10 +79,12 @@ def main():
     print("STEP 3: OPTIMIZING STAFFING WITH EMULATOR + OPTIMIZER")
     print("=" * 70)
 
-    emulator = PerformanceEmulator(
-        avg_handle_time=300.0,   # 5 min average call
-        sla_threshold=60.0,      # 60s SLA window
-        interval_minutes=30.0,
+    emulator = CallCenterEmulator(
+        config=EmulatorConfig(
+            avg_handle_time=300,          # 5 min average call
+            sla_threshold_seconds=60,     # 60s SLA window
+            interval_duration_seconds=1800,  # 30 min interval
+        )
     )
     optimizer = SupplyOptimizer(emulator, max_supply=500)
 
@@ -109,8 +120,8 @@ def main():
         total_agents += result.headcount
         print(
             f"{time_str:<8} {demand:<10} {result.headcount:<10} "
-            f"{m.wait_time:<10.1f} {m.sla_compliance:<10.2%} "
-            f"{m.occupancy:<12.2%} {result.is_feasible}"
+            f"{m.avg_wait_time:<10.1f} {m.sla_compliance:<9.1f}% "
+            f"{m.utilization_rate:<11.1f}% {result.is_feasible}"
         )
 
     # Summary

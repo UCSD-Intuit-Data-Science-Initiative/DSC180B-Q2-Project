@@ -885,8 +885,7 @@ class HybridForecaster:
         return features
 
     def predict(self, target_datetime, reference_date=None):
-        if isinstance(target_datetime, str):
-            target_datetime = pd.to_datetime(target_datetime)
+        target_datetime = pd.Timestamp(target_datetime)
 
         if reference_date is None:
             reference_date = self.max_training_date
@@ -1076,8 +1075,13 @@ class HybridForecaster:
 
 if __name__ == "__main__":
     import sys
+    from pathlib import Path
     sys.stdout.reconfigure(line_buffering=True)
+
+    _DATA = Path(__file__).resolve().parent.parent.parent.parent / "data" / "interim" / "mock_intuit_2year_data.csv"
+    _MODEL_OUT = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "hybrid_forecast_model.pkl"
+
     print("Starting training...", flush=True)
     forecaster = HybridForecaster()
-    forecaster.train("mock_intuit_2year_data.csv", tune_hyperparameters=True, n_trials=10)
-    forecaster.save_model("hybrid_forecast_model.pkl")
+    forecaster.train(str(_DATA), tune_hyperparameters=True, n_trials=10)
+    forecaster.save_model(str(_MODEL_OUT))

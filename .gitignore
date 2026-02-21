@@ -60,3 +60,6 @@ docs/_site/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Scripts and data files
+scripts/mock_intuit_2year_data.csv
