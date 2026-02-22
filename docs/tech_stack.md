@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Tech Stack & Tooling
-nav_order: 5
+nav_order: 4
 ---
 
 # Tech Stack & Tooling
