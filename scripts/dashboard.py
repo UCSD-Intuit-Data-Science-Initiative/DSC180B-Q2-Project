@@ -1,6 +1,7 @@
 import os
 import sys
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
@@ -9,21 +10,28 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, SCRIPT_DIR)
+_ROOT = Path(__file__).resolve().parent.parent
+_SRC = _ROOT / "src"
+sys.path.insert(0, str(_SRC))
+sys.path.insert(0, SCRIPT_DIR)  # keeps demand_forecasting_model importable
 
-from business_analytics import BusinessAnalytics
-from call_center_emulator import CallCenterEmulator, EmulatorConfig
+from main_module.workforce import CallCenterEmulator, EmulatorConfig, HybridForecaster
 from demand_forecasting_model import CallDemandForecaster
-from hybrid_forecaster import HybridForecaster
 from staffing_optimizer import (
     OptimizationThresholds,
     ShiftConstraints,
     StaffingOptimizer,
 )
 
+try:
+    from business_analytics import BusinessAnalytics
+    _ANALYTICS_AVAILABLE = True
+except ImportError:
+    _ANALYTICS_AVAILABLE = False
+
 MODEL_PATH = os.path.join(SCRIPT_DIR, "demand_forecast_model.pkl")
 HYBRID_MODEL_PATH = os.path.join(SCRIPT_DIR, "hybrid_forecast_model.pkl")
-DATA_PATH = os.path.join(SCRIPT_DIR, "mock_intuit_2year_data.csv")
+DATA_PATH = str(_ROOT / "data" / "interim" / "mock_intuit_2year_data.csv")
 
 
 st.set_page_config(
@@ -84,6 +92,8 @@ def load_hybrid_forecaster(_model_mtime):
 
 @st.cache_resource
 def load_analytics():
+    if not _ANALYTICS_AVAILABLE:
+        return None, False
     try:
         if os.path.exists(DATA_PATH):
             return BusinessAnalytics(DATA_PATH), True
