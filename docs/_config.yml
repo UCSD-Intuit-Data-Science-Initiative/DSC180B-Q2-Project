@@ -2,8 +2,8 @@
 remote_theme: just-the-docs/just-the-docs
 
 # Site metadata
-title: Python Data Science Template
-description: UCSD Intuit Capstone scaffold
+title: Workforce Optimization for Intuit's Virtual Expert Platform
+description: 2026 UC San Diego - Data Science Capstone
 
 # UX
 search_enabled: true
@@ -14,10 +14,10 @@ color_scheme: light
 
 # Links in header
 aux_links:
-  "GitHub Repository": "https://github.com/UCSD-Intuit-Data-Science-Initiative/UCSD-Intuit-DS-Capstone-project-template"
+  "GitHub Repository": "https://github.com/UCSD-Intuit-Data-Science-Initiative/DSC180B-Q2-Project/"
 
 # Footer
-footer_content: "© <span id=\"current-year\">2025</span> UC San Diego - Data Science Capstones<script>document.addEventListener('DOMContentLoaded',function(){const e=document.getElementById('current-year');e&&(e.textContent=new Date().getFullYear())});</script>"
+footer_content: "© <span id=\"current-year\">2025</span> UC San Diego - Data Science Capstone<script>document.addEventListener('DOMContentLoaded',function(){const e=document.getElementById('current-year');e&&(e.textContent=new Date().getFullYear())});</script>"
 
 # Markdown engine
 markdown: kramdown
