@@ -69,6 +69,22 @@ pipeline-run: ## Execute sample training pipeline
 pipeline-help: ## Show pipeline CLI help
 	$(POETRY) run python scripts/run_pipeline.py --help
 
+##@Frontend
+frontend-up: ## Start frontend dev server in Docker
+	$(COMPOSE_CMD) up --detach --build frontend
+
+frontend-down: ## Stop frontend container
+	$(COMPOSE_CMD) stop frontend
+
+frontend-logs: ## Tail frontend dev server logs
+	$(COMPOSE_CMD) logs -f frontend
+
+frontend-open: ## Open the frontend in your default browser
+	@ $(POETRY) run python -c "import webbrowser; webbrowser.open('http://localhost:5173')"
+
+frontend-build: ## Run production build inside container
+	$(COMPOSE_CMD) run --rm frontend npm run build
+
 ##@Maintenance
 clean: ## Remove caches and build artifacts
 	@ $(MAKE) clean-pyc
