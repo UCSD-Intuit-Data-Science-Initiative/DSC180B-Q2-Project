@@ -1,4 +1,5 @@
 # Workforce Optimization for Intuit's Virtual Expert Platform
+Static Informational Website: [https://ucsd-intuit-data-science-initiative.github.io/DSC180B-Q2-Project/](https://ucsd-intuit-data-science-initiative.github.io/DSC180B-Q2-Project/)
 
 ## Introduction
 

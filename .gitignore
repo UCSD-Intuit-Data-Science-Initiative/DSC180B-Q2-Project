@@ -61,5 +61,13 @@ docs/_site/
 .DS_Store
 Thumbs.db
 
+# Frontend (Node / Vite)
+node_modules/
+.vite/
+*.tsbuildinfo
+
+# Saved model artifacts
+*.pkl
+
 # Scripts and data files
 scripts/mock_intuit_2year_data.csv
