@@ -91,7 +91,7 @@ clean: ## Remove caches and build artifacts
 	@ $(MAKE) clean-build
 	@ $(MAKE) clean-test
 	@ $(MAKE) clean-cache
-	@ echo "✅ Cleaned up build artifacts and caches"
+	@ echo "Cleaned up build artifacts and caches"
 
 clean-pyc:
 	find . -name '*.pyc' -exec rm -f {} +
