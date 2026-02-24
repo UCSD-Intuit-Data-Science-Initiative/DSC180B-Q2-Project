@@ -1,4 +1,16 @@
 services:
+  backend:
+    build:
+      context: .                               # project root — Dockerfile can access all files
+      dockerfile: src/main_module/api/Dockerfile
+      target: dev                              # use the dev stage (with --reload)
+    ports:
+      - "8000:8000"                            # your laptop:8000 → container:8000
+    volumes:
+      - .:/app                                 # link local project root into container for hot reload
+    environment:
+      - PYTHONPATH=/app/src                    # lets `from main_module.workforce import ...` work
+
   frontend:
     build:
       context: ./src/main_module/visualization
