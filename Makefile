@@ -80,7 +80,7 @@ frontend-logs: ## Tail frontend dev server logs
 	$(COMPOSE_CMD) logs -f frontend
 
 frontend-open: ## Open the frontend in your default browser
-	@ $(POETRY) run python -c "import webbrowser; webbrowser.open('http://localhost:5173')"
+	@ $(POETRY) run python -c "import webbrowser; webbrowser.open('http://localhost:3000')"
 
 frontend-build: ## Run production build inside container
 	$(COMPOSE_CMD) run --rm frontend npm run build
