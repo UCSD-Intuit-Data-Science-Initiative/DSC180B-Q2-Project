@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Calculator, ArrowRight, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Target, Clock, Activity } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { fetchStaffing } from '../lib/api';
 
 interface SimulationPanelProps {
   initialCallVolume?: number;
@@ -50,43 +51,21 @@ export function SimulationPanel({ initialCallVolume, onReset, selectedDate, dail
     }
   }, [dailyBreakdownData, selectedDate]);
 
-  // Calculate required agents based on targets
+  // Fetch required agents from backend whenever date or slider targets change
   useEffect(() => {
+    if (!selectedDate) return;
     setIsCalculating(true);
     const timer = setTimeout(() => {
-      // Convert calls per half hour to calls per hour for calculation
-      const callsPerHour = callsPerHalfHour * 2;
-
-      // Erlang-C inspired reverse calculation
-      // This is a simplified heuristic to estimate required agents
-
-      // Base agents needed for the workload (assuming 3-min average handle time = 20 calls/hr per agent)
-      const avgHandleTimeHours = 3 / 60; // 3 minutes in hours
-      const baseAgents = (callsPerHour * avgHandleTimeHours);
-
-      // Factor for SLA target (higher SLA = more agents needed)
-      const slaFactor = targetSLA / 90; // Normalized to 90% baseline
-      const agentsForSLA = baseAgents * slaFactor * 1.15;
-
-      // Factor for wait time target (lower wait time = more agents needed)
-      const waitTimeFactor = 30 / Math.max(targetWaitTime, 5); // Normalized to 30s baseline
-      const agentsForWaitTime = baseAgents * waitTimeFactor * 1.1;
-
-      // Factor for occupancy target (lower occupancy = more agents needed)
-      const occupancyFactor = 85 / Math.max(targetOccupancy, 50); // Normalized to 85% baseline
-      const agentsForOccupancy = baseAgents * occupancyFactor;
-
-      // Take the maximum to ensure all targets are met
-      const maxRequired = Math.max(agentsForSLA, agentsForWaitTime, agentsForOccupancy);
-
-      // Add a small buffer for variability
-      const finalAgents = Math.ceil(maxRequired * 1.05);
-
-      setRequiredAgents(Math.max(1, finalAgents));
-      setIsCalculating(false);
+      fetchStaffing(selectedDate, targetSLA, targetWaitTime, targetOccupancy)
+        .then(slots => {
+          const slot = slots.find(s => s.time === currentTimeSlot) ?? slots[0];
+          if (slot) setRequiredAgents(slot.agents);
+        })
+        .catch(console.error)
+        .finally(() => setIsCalculating(false));
     }, 400);
     return () => clearTimeout(timer);
-  }, [targetSLA, targetWaitTime, targetOccupancy, callsPerHalfHour]);
+  }, [selectedDate, targetSLA, targetWaitTime, targetOccupancy, currentTimeSlot]);
 
   const handleReset = () => {
     // Reset to default targets
