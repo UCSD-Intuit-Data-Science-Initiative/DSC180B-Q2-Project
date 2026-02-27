@@ -11,19 +11,27 @@ On the supply planning side, the challenge is about optimization under constrain
 
 ## Getting Started
 
+Only [Docker Desktop](https://www.docker.com/products/docker-desktop/) is required to run the full stack.
+
 ```bash
 git clone <repo>
 cd <repo>
-streamlit run scripts/app.py # locally run the staffing dashboard
-make install        # installs dependencies & pre-commit hooks
-make lint           # sanity-check tooling
-make test           # run the sample unit tests
-make pipeline-run   # execute the demo training pipeline
+make backend-up     # start FastAPI backend (trains ML model on startup)
+make frontend-up    # start React dashboard
 ```
 
-Poetry 1.8+ is required. If Poetry is not already installed, follow the [official instructions](https://python-poetry.org/docs/#installation).
+Then open:
+- **Dashboard:** http://localhost:3000
+- **API docs:** http://localhost:8000/docs
 
-To run Streamlit locally, you need to install Streamlit by opening your terminal or command prompt and running: `pip install streamlit`.
+```bash
+make install        # installs dependencies & pre-commit hooks (requires Poetry 1.8+)
+make lint           # sanity-check tooling
+make test           # run the sample unit tests
+make pipeline-run   # execute the demo training pipeline (no Docker)
+```
+
+Poetry 1.8+ is required for local development. If Poetry is not already installed, follow the [official instructions](https://python-poetry.org/docs/#installation).
 
 ## Repository Layout
 

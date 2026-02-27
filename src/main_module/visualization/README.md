@@ -2,7 +2,7 @@
 
 React dashboard for the Workforce Optimization project. Built with Vite + React 19 + Tailwind 4 + shadcn/ui.
 
-Runs at **`localhost:5173`** with hot reload.
+Runs at **`localhost:3000`** with hot reload.
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ From the **project root**:
 
 ```bash
 make frontend-up    # build image + start dev server
-make frontend-open  # open localhost:5173 in browser
+make frontend-open  # open localhost:3000 in browser
 make frontend-logs  # tail Vite output / errors
 make frontend-down  # stop the container
 ```
