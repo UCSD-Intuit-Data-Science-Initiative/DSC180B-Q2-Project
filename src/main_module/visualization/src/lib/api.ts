@@ -20,3 +20,15 @@ export async function fetchMetrics(date: Date): Promise<DayMetrics> {
   if (!res.ok) throw new Error(`metrics fetch failed: ${res.status}`);
   return res.json();
 }
+
+export interface ForecastSlot {
+  time: string;
+  predicted_calls: number;
+  model_used: string;
+}
+
+export async function fetchForecast(date: Date): Promise<ForecastSlot[]> {
+  const res = await fetch(`${API_BASE}/api/forecast?date=${formatDate(date)}`);
+  if (!res.ok) throw new Error(`forecast fetch failed: ${res.status}`);
+  return res.json();
+}
