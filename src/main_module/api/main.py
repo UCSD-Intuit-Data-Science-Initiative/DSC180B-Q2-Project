@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # When running locally: looks for the data file relative to project root
 # When running in Docker: the project root is mounted at /app
-DATA_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / "data" / "interim" / "mock_intuit_2year_data.csv"
+DATA_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "interim" / "mock_intuit_2year_data.csv"
 
 # ---------------------------------------------------------------------------
 # Global variables

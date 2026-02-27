@@ -5,6 +5,7 @@ import { SimulationPanel } from '../components/SimulationPanel';
 import { Clock, Target, TrendingUp, Trophy, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { fetchMetrics, DayMetrics } from '../lib/api';
 
 // Helper function to replicate the volume logic from DemandChart
 function seededRandom(seed: number) {
@@ -54,6 +55,7 @@ function getDailyBreakdownData(date: Date) {
 
 export default function Dashboard() {
   const [selectedDayVolume, setSelectedDayVolume] = useState<number | undefined>(undefined);
+  const [metrics, setMetrics] = useState<DayMetrics | null>(null);
 
   // State lifted from ForecastingSection
   const [currentWeekStart, setCurrentWeekStart] = useState(() => {
@@ -74,6 +76,13 @@ export default function Dashboard() {
     const vol = getVolumeForDate(today);
     setSelectedDayVolume(vol);
   }, []);
+
+  // Fetch real metrics from backend whenever selected day changes
+  useEffect(() => {
+    fetchMetrics(selectedDay)
+      .then(setMetrics)
+      .catch(console.error);
+  }, [selectedDay]);
 
   const handlePrevWeek = () => {
     const prev = new Date(currentWeekStart);
@@ -176,22 +185,22 @@ export default function Dashboard() {
              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 <MetricCard
                   title="Service Level (SLA)"
-                  value="94.2%"
-                  change="+2.4%"
+                  value={metrics ? `${metrics.avg_sla_compliance.toFixed(1)}%` : '—'}
+                  change=""
                   isPositive={true}
                   icon={Target}
                 />
                 <MetricCard
                   title="Avg. Waiting Time"
-                  value="45s"
-                  change="-8s"
+                  value={metrics ? `${Math.round(metrics.avg_wait_time)}s` : '—'}
+                  change=""
                   isPositive={true}
                   icon={Clock}
                 />
                 <MetricCard
                   title="Total Calls Processed"
-                  value="12,450"
-                  change="+5.1%"
+                  value={metrics ? metrics.total_calls.toLocaleString() : '—'}
+                  change=""
                   isPositive={true}
                   icon={TrendingUp}
                 />
