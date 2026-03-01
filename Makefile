@@ -1,4 +1,4 @@
-.PHONY: help install lint format test docs-up docs-down docs-logs docs-check docs-build docs-ps clean precommit
+.PHONY: help install lint format test docs-up docs-down docs-logs docs-check docs-build docs-ps clean precommit backend-up backend-down backend-logs backend-open
 
 POETRY ?= poetry
 
@@ -69,13 +69,42 @@ pipeline-run: ## Execute sample training pipeline
 pipeline-help: ## Show pipeline CLI help
 	$(POETRY) run python scripts/run_pipeline.py --help
 
+##@Frontend
+frontend-up: ## Start frontend dev server in Docker
+	$(COMPOSE_CMD) up --detach --build frontend
+
+frontend-down: ## Stop frontend container
+	$(COMPOSE_CMD) stop frontend
+
+frontend-logs: ## Tail frontend dev server logs
+	$(COMPOSE_CMD) logs -f frontend
+
+frontend-open: ## Open the frontend in your default browser
+	@ $(POETRY) run python -c "import webbrowser; webbrowser.open('http://localhost:3000')"
+
+frontend-build: ## Run production build inside container
+	$(COMPOSE_CMD) run --rm frontend npm run build
+
+##@Backend
+backend-up: ## Start FastAPI backend dev server in Docker
+	$(COMPOSE_CMD) up --detach --build backend
+
+backend-down: ## Stop backend container
+	$(COMPOSE_CMD) stop backend
+
+backend-logs: ## Tail backend dev server logs
+	$(COMPOSE_CMD) logs -f backend
+
+backend-open: ## Open the backend API docs in your default browser
+	@ python3 -c "import webbrowser; webbrowser.open('http://localhost:8000/docs')"
+
 ##@Maintenance
 clean: ## Remove caches and build artifacts
 	@ $(MAKE) clean-pyc
 	@ $(MAKE) clean-build
 	@ $(MAKE) clean-test
 	@ $(MAKE) clean-cache
-	@ echo "✅ Cleaned up build artifacts and caches"
+	@ echo "Cleaned up build artifacts and caches"
 
 clean-pyc:
 	find . -name '*.pyc' -exec rm -f {} +

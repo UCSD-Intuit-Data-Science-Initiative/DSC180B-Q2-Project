@@ -1,124 +1,142 @@
-"""Example training pipeline entrypoint.
+"""
+Run the full workforce optimization pipeline:
+  1. Train the demand forecasting model (HybridForecaster)
+  2. Forecast demand for a target date
+  3. Feed predictions into PerformanceEmulator + SupplyOptimizer
+  4. Print staffing recommendations
 
-This scaffold demonstrates how to wire together the utility and modeling
-layers provided by ``main_module``. Customize the data loading and model
-training steps to match your project requirements.
+Usage:
+    cd scripts/
+    python run_pipeline.py
 """
 
-from __future__ import annotations
-
-import argparse
+import sys
+import pandas as pd
 from pathlib import Path
 
-import pandas as pd
+# Add src to the Python path so main_module is importable
+_SRC = Path(__file__).resolve().parent.parent / "src"
+sys.path.insert(0, str(_SRC))
 
-from main_module import (
-    LinearModelResult,
-    clean_dataframe,
-    load_csv,
-    train_linear_model,
+from main_module.workforce import (
+    HybridForecaster,
+    CallCenterEmulator,
+    EmulatorConfig,
+    SupplyOptimizer,
+    OptimizationConstraints,
 )
-from main_module.logging import get_logger
 
-logger = get_logger("scripts.run_pipeline")
+DATA_PATH = str(Path(__file__).resolve().parent.parent / "data" / "interim" / "mock_intuit_2year_data.csv")
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse CLI arguments.
+def main():
+    # ---------------------------------------------------------------
+    # Step 1: Train the demand forecasting model
+    # ---------------------------------------------------------------
+    print("=" * 70)
+    print("STEP 1: TRAINING DEMAND FORECASTING MODEL")
+    print("=" * 70)
 
-    Parameters
-    ----------
-    None
+    forecaster = HybridForecaster()
+    forecaster.train(DATA_PATH, test_year=2025, tune_hyperparameters=True, n_trials=10)
 
-    Returns
-    -------
-    argparse.Namespace
-        Populated namespace containing command-line settings.
+    # ---------------------------------------------------------------
+    # Step 2: Forecast demand for a target date
+    # ---------------------------------------------------------------
+    target_date = "2025-04-15"  # Tax deadline day
 
-    Raises
-    ------
-    None
+    print("\n" + "=" * 70)
+    print(f"STEP 2: FORECASTING DEMAND FOR {target_date}")
+    print("=" * 70)
 
-    Notes
-    -----
-    - Extend this parser with additional options as pipelines evolve.
-    """
+    demand_df = forecaster.predict_day(target_date)
 
-    parser = argparse.ArgumentParser(description="Train linear model pipeline")
-    parser.add_argument(
-        "--data",
-        type=Path,
-        default=None,
-        help="Path to CSV dataset",
+    # HybridForecaster doesn't include time/is_open columns — derive them
+    demand_df["time"] = demand_df["interval_start"].dt.strftime("%H:%M")
+    demand_df["is_open"] = (
+        (demand_df["interval_start"].dt.hour >= 5) &
+        (demand_df["interval_start"].dt.hour < 17) &
+        (demand_df["interval_start"].dt.dayofweek < 5)
     )
-    parser.add_argument(
-        "--target",
-        type=str,
-        default="target",
-        help="Name of the target column",
-    )
-    parser.add_argument(
-        "--demo",
-        action="store_true",
-        help="""
-        Generate synthetic data and run the pipeline without an input file.
-        """,
-    )
-    return parser.parse_args()
 
+    # Filter to open intervals with predicted calls > 0
+    open_intervals = demand_df[demand_df["is_open"] & (demand_df["predicted_calls"] > 0)]
 
-def main() -> None:
-    """Execute the training workflow.
+    if open_intervals.empty:
+        print("No open intervals with calls predicted. Exiting.")
+        return
 
-    Parameters
-    ----------
-    None
+    calls_per_interval = open_intervals["predicted_calls"].tolist()
+    times = open_intervals["time"].tolist()
 
-    Returns
-    -------
-    None
+    print(f"\n  Open intervals with calls: {len(open_intervals)}")
+    print(f"  Total predicted calls: {sum(calls_per_interval)}")
 
-    Raises
-    ------
-    None
+    # ---------------------------------------------------------------
+    # Step 3: Run emulator + optimizer for each interval
+    # ---------------------------------------------------------------
+    print("\n" + "=" * 70)
+    print("STEP 3: OPTIMIZING STAFFING WITH EMULATOR + OPTIMIZER")
+    print("=" * 70)
 
-    Notes
-    -----
-    - Replace preprocessing/modeling logic with project-specific
-      modules as needed.
-    """
-
-    args = parse_args()
-
-    if args.demo:
-        target_column = args.target
-        logger.info("Generating synthetic data for demo run")
-        df = pd.DataFrame(
-            {
-                "feature_1": [0.0, 1.0, 2.0, 3.0],
-                "feature_2": [1.0, 0.0, 1.0, 0.0],
-                target_column: [0.0, 1.5, 3.2, 4.8],
-            }
+    emulator = CallCenterEmulator(
+        config=EmulatorConfig(
+            avg_handle_time=300,          # 5 min average call
+            sla_threshold_seconds=60,     # 60s SLA window
+            interval_duration_seconds=1800,  # 30 min interval
         )
-    else:
-        if args.data is None or args.target is None:
-            msg = "Either provide --demo or both --data and --target."
-            raise ValueError(msg)
-        logger.info("Loading dataset", path=str(args.data))
-        df = load_csv(args.data)
-        target_column = args.target
+    )
+    optimizer = SupplyOptimizer(emulator, max_supply=500)
 
-    features = clean_dataframe(df.drop(columns=[target_column]))
-    target = clean_dataframe(df[[target_column]])[target_column]
-    result: LinearModelResult = train_linear_model(features, target)
+    constraints = OptimizationConstraints(
+        min_sla=0.80,           # 80% of calls answered within 60s
+        max_wait_time=60.0,     # avg wait under 60s
+        max_occupancy=0.85,     # agents no more than 85% utilized
+    )
 
-    logger.info("Trained linear model", intercept=result.intercept)
-    for name, coef in zip(
-        result.feature_names,
-        result.coefficients,
-        strict=True,
-    ):
-        logger.info("Coefficient", feature=name, value=coef)
+    print(f"\n  Constraints:")
+    print(f"    Min SLA:       {constraints.min_sla:.0%}")
+    print(f"    Max wait time: {constraints.max_wait_time}s")
+    print(f"    Max occupancy: {constraints.max_occupancy:.0%}")
+
+    # Optimize each interval
+    results = []
+    for time_str, demand in zip(times, calls_per_interval):
+        result = optimizer.optimize(int(demand), constraints)
+        results.append((time_str, demand, result))
+
+    # ---------------------------------------------------------------
+    # Step 4: Print results
+    # ---------------------------------------------------------------
+    print(f"\n{'='*80}")
+    print(f"  STAFFING SCHEDULE FOR {target_date}")
+    print(f"{'='*80}")
+    print(f"\n{'Time':<8} {'Demand':<10} {'Agents':<10} {'Wait(s)':<10} {'SLA%':<10} {'Occupancy':<12} {'Feasible':<10}")
+    print("-" * 70)
+
+    total_agents = 0
+    for time_str, demand, result in results:
+        m = result.predicted_metrics
+        total_agents += result.headcount
+        print(
+            f"{time_str:<8} {demand:<10} {result.headcount:<10} "
+            f"{m.avg_wait_time:<10.1f} {m.sla_compliance:<9.1f}% "
+            f"{m.utilization_rate:<11.1f}% {result.is_feasible}"
+        )
+
+    # Summary
+    peak_agents = max(r.headcount for _, _, r in results)
+    peak_demand = max(d for _, d, _ in results)
+    feasible_count = sum(1 for _, _, r in results if r.is_feasible)
+
+    print(f"\n{'='*80}")
+    print(f"  SUMMARY")
+    print(f"{'='*80}")
+    print(f"  Total predicted calls : {sum(calls_per_interval)}")
+    print(f"  Peak demand           : {peak_demand} calls")
+    print(f"  Peak agents needed    : {peak_agents}")
+    print(f"  Total agent-intervals : {total_agents}")
+    print(f"  Feasible intervals    : {feasible_count}/{len(results)}")
 
 
 if __name__ == "__main__":
