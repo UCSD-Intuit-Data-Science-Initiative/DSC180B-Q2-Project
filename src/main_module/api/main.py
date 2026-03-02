@@ -66,45 +66,42 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     """
-    Train the ML model when the server starts up.
+    Load the pre-trained model from forecaster.joblib at server startup.
 
-    This function runs automatically when you start the server.
-    Training takes about 1 minute on first run.
-    After that, the trained model stays in memory so every API request is fast.
+    Run train.py once to generate forecaster.joblib before starting this server:
+        PYTHONPATH=src python src/main_module/api/train.py
 
     The `global` keyword lets us write to the module-level variables
     (forecaster, emulator, optimizer, model_ready) defined above.
     Without `global`, Python would treat them as local variables and
-    the rest of the code would not be able to see the trained model.
+    the rest of the code would not be able to see the loaded model.
     """
     global forecaster, emulator, optimizer, model_ready
 
-    if not DATA_PATH.exists():
-        print(f"WARNING: Data file not found at {DATA_PATH}")
-        print("The API will return placeholder data until the file is available.")
-        return
-
-    # Import the ML modules from our Python package
+    import joblib
     from main_module.workforce import (
         CallCenterEmulator,
         EmulatorConfig,
-        HybridForecaster,
         SupplyOptimizer,
     )
 
-    # Step 1: Train the demand forecasting model
+    model_path = Path(__file__).resolve().parent / "forecaster.joblib"
+
+    if not model_path.exists():
+        print("=" * 60)
+        print("WARNING: forecaster.joblib not found.")
+        print("Run train.py first to generate it:")
+        print("  PYTHONPATH=src python src/main_module/api/train.py")
+        print("The API will return placeholder data until the model is available.")
+        print("=" * 60)
+        return
+
     print("=" * 60)
-    print("Startup: training HybridForecaster...")
-    print("(This takes ~1 minute — only happens once at startup)")
+    print(f"Startup: loading model from {model_path}...")
     print("=" * 60)
 
-    forecaster = HybridForecaster()
-    forecaster.train(
-        str(DATA_PATH),
-        test_year=2025,
-        tune_hyperparameters=True,
-        n_trials=10,
-    )
+    # Step 1: Load pre-trained forecaster from disk (seconds, not minutes)
+    forecaster = joblib.load(str(model_path))
 
     # Step 2: Set up the call center emulator with business config
     emulator = CallCenterEmulator(

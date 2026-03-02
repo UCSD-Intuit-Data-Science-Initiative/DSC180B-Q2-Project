@@ -44,6 +44,31 @@ export interface StaffingSlot {
   is_feasible: boolean;
 }
 
+export interface DailyTotal {
+  date: Date;
+  totalCalls: number;
+}
+
+export async function fetchWeeklyForecast(weekStart: Date): Promise<DailyTotal[]> {
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    return d;
+  });
+
+  return Promise.all(
+    days.map(async (day) => {
+      try {
+        const slots = await fetchForecast(day);
+        const total = slots.reduce((sum, s) => sum + s.predicted_calls, 0);
+        return { date: day, totalCalls: total };
+      } catch {
+        return { date: day, totalCalls: 0 };
+      }
+    })
+  );
+}
+
 export async function fetchStaffing(
   date: Date,
   minSla: number,

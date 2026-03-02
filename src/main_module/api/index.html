@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Predict Test</title>
+  <style>
+    body { font-family: monospace; padding: 24px; background: #0f172a; color: #e2e8f0; }
+    h1 { color: #60a5fa; }
+    label { display: block; margin-top: 12px; color: #94a3b8; font-size: 13px; }
+    input { background: #1e293b; border: 1px solid #334155; color: #e2e8f0;
+            padding: 6px 10px; border-radius: 6px; width: 200px; }
+    button { margin-top: 20px; padding: 10px 24px; background: #2563eb;
+             color: white; border: none; border-radius: 8px; cursor: pointer;
+             font-size: 14px; font-weight: 600; }
+    button:hover { background: #1d4ed8; }
+    #status { margin-top: 16px; font-size: 13px; color: #94a3b8; }
+    #results { margin-top: 16px; }
+    table { border-collapse: collapse; width: 100%; }
+    th { background: #1e293b; color: #60a5fa; padding: 8px 12px;
+         text-align: left; border-bottom: 1px solid #334155; }
+    td { padding: 6px 12px; border-bottom: 1px solid #1e293b; font-size: 13px; }
+    tr:hover td { background: #1e293b; }
+    .feasible { color: #34d399; }
+    .infeasible { color: #f87171; }
+  </style>
+</head>
+<body>
+  <h1>🔮 /predict test</h1>
+
+  <label>Date</label>
+  <input id="date" type="date" value="2025-04-15" />
+
+  <label>Min SLA (0–1)</label>
+  <input id="min_sla" type="number" step="0.01" min="0" max="1" value="0.80" />
+
+  <label>Max Wait (seconds)</label>
+  <input id="max_wait" type="number" step="1" min="0" value="60" />
+
+  <label>Max Occupancy (0–1)</label>
+  <input id="max_occupancy" type="number" step="0.01" min="0" max="1" value="0.85" />
+
+  <br/>
+  <button onclick="runPredict()">Run Predict</button>
+
+  <div id="status"></div>
+  <div id="results"></div>
+
+  <script>
+    async function runPredict() {
+      const status = document.getElementById('status');
+      const results = document.getElementById('results');
+      results.innerHTML = '';
+      status.textContent = 'Fetching...';
+
+      const body = {
+        date: document.getElementById('date').value,
+        min_sla: parseFloat(document.getElementById('min_sla').value),
+        max_wait: parseFloat(document.getElementById('max_wait').value),
+        max_occupancy: parseFloat(document.getElementById('max_occupancy').value),
+      };
+
+      console.log('POST /predict', body);
+
+      try {
+        const res = await fetch('http://localhost:8001/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          status.textContent = `Error ${res.status}: ${JSON.stringify(err.detail)}`;
+          return;
+        }
+
+        const data = await res.json();
+        console.log('Response:', data);
+        status.textContent = `Got ${data.length} slots for ${body.date}`;
+
+        if (data.length === 0) {
+          results.innerHTML = '<p style="color:#f87171">No open slots returned for this date.</p>';
+          return;
+        }
+
+        const cols = ['time','predicted_calls','agents','avg_wait_time','sla_compliance','utilization_rate','abandonment_rate','is_feasible'];
+        let html = '<table><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr>';
+        for (const row of data) {
+          const cls = row.is_feasible ? 'feasible' : 'infeasible';
+          html += '<tr>' + cols.map(c => {
+            const val = c === 'is_feasible'
+              ? `<span class="${cls}">${row[c]}</span>`
+              : row[c];
+            return `<td>${val}</td>`;
+          }).join('') + '</tr>';
+        }
+        html += '</table>';
+        results.innerHTML = html;
+      } catch (e) {
+        status.textContent = `Network error: ${e.message} — is app.py running on port 8001?`;
+        console.error(e);
+      }
+    }
+  </script>
+</body>
+</html>

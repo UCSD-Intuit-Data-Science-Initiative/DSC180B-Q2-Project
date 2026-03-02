@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceArea, ErrorBar } from 'recharts';
-import { ChevronLeft, ChevronRight, Calendar, RotateCcw } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceArea } from 'recharts';
+import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import { fetchWeeklyForecast } from '../lib/api';
 
 interface DemandForecastChartProps {
   weekStart: Date;
@@ -12,53 +13,48 @@ interface DemandForecastChartProps {
   onJumpToToday: () => void;
 }
 
-// Simple seeded random function
-function seededRandom(seed: number) {
-    const x = Math.sin(seed) * 10000;
-    return x - Math.floor(x);
+interface ChartEntry {
+  date: Date;
+  name: string;
+  fullName: string;
+  calls: number;
+  isToday: boolean;
+  isSelected: boolean;
 }
 
 export function DemandForecastChart({ weekStart, onPrevWeek, onNextWeek, selectedDate, onSelectDate, onJumpToToday }: DemandForecastChartProps) {
   const { theme } = useTheme();
+  const [weekData, setWeekData] = useState<ChartEntry[]>([]);
 
-  const currentData = useMemo(() => {
-    const data = [];
-    const start = new Date(weekStart);
-    start.setHours(0, 0, 0, 0);
+  // Fetch all 7 days in parallel whenever the week changes
+  useEffect(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    for (let i = 0; i < 7; i++) {
-      const day = new Date(start);
-      day.setDate(start.getDate() + i);
+    fetchWeeklyForecast(weekStart).then((results) => {
+      setWeekData(results.map(({ date, totalCalls }) => {
+        const mm = date.getMonth() + 1;
+        const dd = date.getDate();
+        const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
+        return {
+          date,
+          name: `${weekday} ${mm}/${dd}`,
+          fullName: date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
+          calls: totalCalls,
+          isToday: date.getTime() === today.getTime(),
+          isSelected: false,
+        };
+      }));
+    });
+  }, [weekStart]);
 
-      const isWeekend = day.getDay() === 0 || day.getDay() === 6;
-      const baseVolume = isWeekend ? 6000 : 12500;
-
-      // Use date timestamp as seed for consistent random values
-      const seed = day.getFullYear() * 10000 + (day.getMonth() + 1) * 100 + day.getDate();
-      const randomVal = seededRandom(seed);
-      const noise = randomVal * 2000 - 1000;
-
-      const isToday = day.getTime() === today.getTime();
-      const isSelected = day.getTime() === new Date(selectedDate.setHours(0,0,0,0)).getTime();
-      const mm = day.getMonth() + 1;
-      const dd = day.getDate();
-      const dateStr = `${mm}/${dd}`;
-      const weekday = day.toLocaleDateString('en-US', { weekday: 'short' });
-
-      data.push({
-        date: day,
-        name: `${weekday} ${dateStr}`,
-        fullName: day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
-        calls: Math.max(4000, Math.floor(baseVolume + noise)),
-        range: isWeekend ? 400 : 800,
-        isToday: isToday,
-        isSelected: isSelected
-      });
-    }
-    return data;
-  }, [weekStart, selectedDate]);
+  // Derive isSelected from selectedDate without re-fetching
+  const selDay = new Date(selectedDate);
+  selDay.setHours(0, 0, 0, 0);
+  const currentData = weekData.map((d) => ({
+    ...d,
+    isSelected: d.date.getTime() === selDay.getTime(),
+  }));
 
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 6);
@@ -227,7 +223,6 @@ export function DemandForecastChart({ weekStart, onPrevWeek, onNextWeek, selecte
                         opacity={entry.isSelected ? 1 : entry.isToday ? 0.9 : 0.6}
                     />
                 ))}
-                <ErrorBar dataKey="range" width={4} strokeWidth={2} stroke="#94A3B8" />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
