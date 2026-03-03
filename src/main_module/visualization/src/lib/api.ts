@@ -6,6 +6,7 @@ export interface DayMetrics {
   peak_agents: number;
   avg_sla_compliance: number;
   avg_wait_time: number;
+  avg_occupancy: number;
   feasible_intervals: number;
   total_intervals: number;
   model_ready: boolean;
@@ -42,6 +43,19 @@ export interface StaffingSlot {
   utilization_rate: number;
   abandonment_rate: number;
   is_feasible: boolean;
+}
+
+export interface WeeklyForecastDay {
+  date: string;        // "YYYY-MM-DD"
+  day_label: string;   // "Mon 3/3"
+  total_calls: number;
+  range: number;       // ± historical std dev, used as error bar
+}
+
+export async function fetchWeeklyForecast(weekStart: Date): Promise<WeeklyForecastDay[]> {
+  const res = await fetch(`${API_BASE}/api/weekly-forecast?week_start=${formatDate(weekStart)}`);
+  if (!res.ok) throw new Error(`weekly-forecast fetch failed: ${res.status}`);
+  return res.json();
 }
 
 export async function fetchStaffing(

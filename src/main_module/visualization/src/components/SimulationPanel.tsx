@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Calculator, RefreshCw, Target, Clock, Users, Phone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { fetchStaffing } from '../lib/api';
+import { fetchStaffing, StaffingSlot } from '../lib/api';
 
 interface SimulationPanelProps {
   initialCallVolume?: number;
@@ -73,6 +73,9 @@ export function SimulationPanel({ initialCallVolume, onReset, selectedDate, dail
   const [waitTimeInput, setWaitTimeInput] = useState('30');
   const [occupancyInput, setOccupancyInput] = useState('80');
 
+  // Staffing slots from API
+  const [staffingSlots, setStaffingSlots] = useState<StaffingSlot[]>([]);
+
   // Check if selected date is today
   const isToday = useMemo(() => {
     if (!selectedDate) return true;
@@ -98,50 +101,75 @@ export function SimulationPanel({ initialCallVolume, onReset, selectedDate, dail
     }
   }, [isToday]);
 
-  // Fetch required agents from backend whenever date or slider targets change
+  // OLD USEEFFECT — using seeded-random dailyBreakdownData + local calculateRequiredAgents formula (replaced with API call)
+  // useEffect(() => {
+  //   if (!selectedDate) return;
+  //   if (dailyBreakdownData && dailyBreakdownData.length > 0) {
+  //     if (onStaffingDataChange) {
+  //       const staffingData = dailyBreakdownData.map(slot => ({
+  //         time: slot.time,
+  //         calls: slot.calls,
+  //         agents: calculateRequiredAgents(slot.calls, targetSLA, targetWaitTime, targetOccupancy)
+  //       }));
+  //       onStaffingDataChange(staffingData);
+  //     }
+  //     fetchStaffing(selectedDate, targetSLA, targetWaitTime, targetOccupancy)
+  //       .then(slots => {
+  //         const slot = slots.find(s => s.time === currentTimeSlot) ?? slots[0];
+  //       })
+  //       .catch(console.error);
+  //     if (onCurrentStatsChange) {
+  //       const currentSlot = dailyBreakdownData.find(slot => slot.time === currentTimeSlot);
+  //       const currentCalls = currentSlot ? currentSlot.calls : 0;
+  //       const currentAgents = calculateRequiredAgents(currentCalls, targetSLA, targetWaitTime, targetOccupancy);
+  //       const peak = Math.max(...dailyBreakdownData.map(slot => slot.calls));
+  //       const peakAgents = calculateRequiredAgents(peak, targetSLA, targetWaitTime, targetOccupancy);
+  //       onCurrentStatsChange({
+  //         currentCallVolume: currentCalls,
+  //         currentRequiredAgents: currentAgents,
+  //         peakCallVolume: peak,
+  //         peakRequiredAgents: peakAgents,
+  //         currentTimeSlot,
+  //         isToday
+  //       });
+  //     }
+  //   }
+  // }, [selectedDate, targetSLA, targetWaitTime, targetOccupancy, dailyBreakdownData, currentTimeSlot, isToday, onStaffingDataChange, onCurrentStatsChange]);
+
+  // NEW USEEFFECT — Fetch staffing data from backend API whenever date or slider targets change
   useEffect(() => {
     if (!selectedDate) return;
-    if (dailyBreakdownData && dailyBreakdownData.length > 0) {
-      if (onStaffingDataChange) {
-        const staffingData = dailyBreakdownData.map(slot => ({
-          time: slot.time,
-          calls: slot.calls,
-          agents: calculateRequiredAgents(slot.calls, targetSLA, targetWaitTime, targetOccupancy)
-        }));
 
-        onStaffingDataChange(staffingData);
-      }
-      // Jackie's code, it is erroring after the updated changes to frontend
-      fetchStaffing(selectedDate, targetSLA, targetWaitTime, targetOccupancy)
-        .then(slots => {
+    fetchStaffing(selectedDate, targetSLA, targetWaitTime, targetOccupancy)
+      .then(slots => {
+        setStaffingSlots(slots);
+
+        // Map API slots to the shape DailyBreakdownChart expects
+        if (onStaffingDataChange) {
+          onStaffingDataChange(slots.map(s => ({
+            time: s.time,
+            calls: s.predicted_calls,
+            agents: s.agents,
+          })));
+        }
+
+        // Current time slot stats for the stat cards
+        if (onCurrentStatsChange) {
           const slot = slots.find(s => s.time === currentTimeSlot) ?? slots[0];
-        //  if (slot) setRequiredAgents(slot.agents);
-        })
-        .catch(console.error)
-       // .finally(() => setIsCalculating(false));
-
-      // Send current stats to parent
-      if (onCurrentStatsChange) {
-        // Find current time slot data
-        const currentSlot = dailyBreakdownData.find(slot => slot.time === currentTimeSlot);
-        const currentCalls = currentSlot ? currentSlot.calls : 0;
-        const currentAgents = calculateRequiredAgents(currentCalls, targetSLA, targetWaitTime, targetOccupancy);
-
-        // Find peak
-        const peak = Math.max(...dailyBreakdownData.map(slot => slot.calls));
-        const peakAgents = calculateRequiredAgents(peak, targetSLA, targetWaitTime, targetOccupancy);
-
-        onCurrentStatsChange({
-          currentCallVolume: currentCalls,
-          currentRequiredAgents: currentAgents,
-          peakCallVolume: peak,
-          peakRequiredAgents: peakAgents,
-          currentTimeSlot,
-          isToday
-        });
-      }
-    }
-  }, [selectedDate, targetSLA, targetWaitTime, targetOccupancy, dailyBreakdownData, currentTimeSlot, isToday, onStaffingDataChange, onCurrentStatsChange]);
+          const peak = Math.max(...slots.map(s => s.predicted_calls));
+          const peakAgents = Math.max(...slots.map(s => s.agents));
+          onCurrentStatsChange({
+            currentCallVolume: slot?.predicted_calls ?? 0,
+            currentRequiredAgents: slot?.agents ?? 0,
+            peakCallVolume: peak,
+            peakRequiredAgents: peakAgents,
+            currentTimeSlot,
+            isToday,
+          });
+        }
+      })
+      .catch(console.error);
+  }, [selectedDate, targetSLA, targetWaitTime, targetOccupancy, currentTimeSlot, isToday, onStaffingDataChange, onCurrentStatsChange]);
 
   const handleReset = () => {
     setTargetSLA(90);
