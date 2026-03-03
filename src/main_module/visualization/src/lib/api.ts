@@ -6,6 +6,7 @@ export interface DayMetrics {
   peak_agents: number;
   avg_sla_compliance: number;
   avg_wait_time: number;
+  avg_occupancy: number;
   feasible_intervals: number;
   total_intervals: number;
   model_ready: boolean;

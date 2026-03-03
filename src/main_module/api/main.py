@@ -19,6 +19,8 @@ How to run locally (no Docker):
 
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -26,9 +28,10 @@ from fastapi.middleware.cors import CORSMiddleware
 # File paths
 # ---------------------------------------------------------------------------
 
-# When running locally: looks for the data file relative to project root
-# When running in Docker: the project root is mounted at /app
-DATA_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "interim" / "mock_intuit_2year_data.csv"
+DATA_ROOT      = Path(__file__).resolve().parent.parent.parent.parent
+DATA_PATH      = DATA_ROOT / "data" / "interim" / "mock_intuit_2year_data.csv"
+DATASET_1_PATH = DATA_ROOT / "data" / "parquet" / "dataset_1_call_related.parquet"
+DATASET_4_PATH = DATA_ROOT / "data" / "parquet" / "dataset_4_expert_state_interval.parquet"
 
 # ---------------------------------------------------------------------------
 # Global variables
@@ -41,6 +44,14 @@ forecaster = None
 emulator = None
 optimizer = None
 model_ready = False  # becomes True once training finishes successfully
+
+# MVP: XGBoost model + historical lookup tables from parquet files
+xgb_model        = None  # XGBoost trained on dataset_1 call volume
+xgb_features     = []    # feature column names used during training
+wait_time_lookup = {}    # (day_of_week, slot) -> avg wait time (seconds)
+sla_lookup       = {}    # (day_of_week, slot) -> avg SLA %
+occupancy_lookup = {}    # (day_of_week, slot) -> avg occupancy %
+agents_lookup    = {}    # (day_of_week, slot) -> avg agent count
 
 
 # ---------------------------------------------------------------------------
@@ -78,50 +89,129 @@ def startup():
     the rest of the code would not be able to see the trained model.
     """
     global forecaster, emulator, optimizer, model_ready
+    global xgb_model, xgb_features, wait_time_lookup, sla_lookup, occupancy_lookup, agents_lookup
 
-    if not DATA_PATH.exists():
-        print(f"WARNING: Data file not found at {DATA_PATH}")
-        print("The API will return placeholder data until the file is available.")
-        return
-
-    # Import the ML modules from our Python package
-    from main_module.workforce import (
-        CallCenterEmulator,
-        EmulatorConfig,
-        HybridForecaster,
-        SupplyOptimizer,
-    )
-
-    # Step 1: Train the demand forecasting model
+    # --- MVP: XGBoost + parquet lookup tables ---
+    # Trains XGBoost on dataset_1 call volume; builds lookup tables from dataset_1 and dataset_4.
+    # Mirrors feature engineering from scripts/forecasting_dynamic_weeks.py (no lag features).
     print("=" * 60)
-    print("Startup: training HybridForecaster...")
-    print("(This takes ~1 minute — only happens once at startup)")
+    print("Startup: loading parquet data and training XGBoost...")
+    print("(This takes ~30 seconds — only happens once at startup)")
     print("=" * 60)
 
-    forecaster = HybridForecaster()
-    forecaster.train(
-        str(DATA_PATH),
-        test_year=2025,
-        tune_hyperparameters=True,
-        n_trials=10,
-    )
+    try:
+        from xgboost import XGBRegressor
 
-    # Step 2: Set up the call center emulator with business config
-    emulator = CallCenterEmulator(
-        config=EmulatorConfig(
-            avg_handle_time=300,             # average call handle time = 5 minutes
-            sla_threshold_seconds=60,        # SLA = must answer within 60 seconds
-            interval_duration_seconds=1800,  # each time slot = 30 minutes
+        # --- dataset_1: train XGBoost + compute wait time / SLA lookups ---
+        # Only load the two timestamp columns we need — avoids reading the full 557 MB file
+        call_df = pd.read_parquet(str(DATASET_1_PATH), columns=["arrival_time_utc", "start_time_utc"])
+        call_df["arrival"] = pd.to_datetime(call_df["arrival_time_utc"])
+        call_df["start"]   = pd.to_datetime(call_df["start_time_utc"])
+
+        # Aggregate to 30-min call volume (mirrors forecasting_dynamic_weeks.py step 1)
+        df_agg = call_df.set_index("arrival").resample("30min").size().to_frame("call_volume")
+        df_agg = df_agg.asfreq("30min", fill_value=0)
+
+        # Feature engineering — same columns as forecasting_dynamic_weeks.py, no lag features
+        df_agg["hour"]      = df_agg.index.hour
+        df_agg["dayofweek"] = df_agg.index.dayofweek
+        df_agg["month"]     = df_agg.index.month
+        df_agg["hour_sin"]  = np.sin(2 * np.pi * df_agg["hour"] / 24)
+        df_agg["hour_cos"]  = np.cos(2 * np.pi * df_agg["hour"] / 24)
+        df_agg["day_sin"]   = np.sin(2 * np.pi * df_agg["dayofweek"] / 7)
+        df_agg["day_cos"]   = np.cos(2 * np.pi * df_agg["dayofweek"] / 7)
+        tax_days            = pd.to_datetime(df_agg.index.year.astype(str) + "-04-15")
+        df_agg["days_to_tax"]   = (tax_days - df_agg.index.normalize()).days
+        df_agg["is_tax_season"] = ((df_agg["month"] <= 4) & (df_agg["days_to_tax"] >= 0)).astype(int)
+
+        xgb_features = ["hour_sin", "hour_cos", "day_sin", "day_cos",
+                         "month", "days_to_tax", "is_tax_season"]
+
+        train = df_agg.dropna()
+        xgb_model = XGBRegressor(
+            n_estimators=100, max_depth=5, learning_rate=0.1,
+            n_jobs=-1, random_state=42
         )
-    )
+        xgb_model.fit(train[xgb_features], train["call_volume"])
+        print("XGBoost trained on call volume.")
 
-    # Step 3: Set up the supply optimizer (uses the emulator internally)
-    optimizer = SupplyOptimizer(emulator, max_supply=500)
+        # Wait time and SLA lookups from raw call records
+        call_df["wait_secs"] = (call_df["start"] - call_df["arrival"]).dt.total_seconds().clip(lower=0)
+        call_df["sla_met"]   = (call_df["wait_secs"] <= 60).astype(float) * 100
+        call_df["dow"]       = call_df["arrival"].dt.dayofweek
+        call_df["slot"]      = call_df["arrival"].dt.hour * 2 + call_df["arrival"].dt.minute // 30
+        wait_time_lookup = call_df.groupby(["dow", "slot"])["wait_secs"].mean().to_dict()
+        sla_lookup       = call_df.groupby(["dow", "slot"])["sla_met"].mean().to_dict()
+        print("Wait time and SLA lookups built from dataset_1.")
 
-    model_ready = True
-    print("=" * 60)
-    print("Startup complete! API is ready.")
-    print("=" * 60)
+        # --- dataset_4: occupancy + agent count lookups ---
+        # Only load the four columns we need — avoids reading the full 770 MB file
+        occ_df = pd.read_parquet(str(DATASET_4_PATH), columns=["interval_start_utc", "occupancy_pct_normalized", "expert_id", "date"])
+        occ_df["dow"]  = pd.to_datetime(occ_df["interval_start_utc"]).dt.dayofweek
+        occ_df["slot"] = (pd.to_datetime(occ_df["interval_start_utc"]).dt.hour * 2
+                          + pd.to_datetime(occ_df["interval_start_utc"]).dt.minute // 30)
+        occupancy_lookup = occ_df.groupby(["dow", "slot"])["occupancy_pct_normalized"].mean().to_dict()
+        n_agent_dates    = occ_df.groupby(["dow", "slot"])["date"].nunique()
+        n_agents         = occ_df.groupby(["dow", "slot"])["expert_id"].nunique()
+        agents_lookup    = (n_agents / n_agent_dates).to_dict()
+        print("Occupancy and agent count lookups built from dataset_4.")
+
+        model_ready = True
+        print("=" * 60)
+        print("Startup complete! API is ready to serve real ML predictions.")
+        print("=" * 60)
+
+    except Exception as e:
+        print(f"WARNING: Startup training failed: {e}")
+        print("API will return placeholder data.")
+
+    # --- OLD ML TRAINING (HybridForecaster) — kept for reference ---
+    # print("Startup: skipping model training, using placeholder data.")
+    # print("To enable real ML results, uncomment the training block in startup().")
+
+    # if not DATA_PATH.exists():
+    #     print(f"WARNING: Data file not found at {DATA_PATH}")
+    #     print("The API will return placeholder data until the file is available.")
+    #     return
+
+    # # Import the ML modules from our Python package
+    # from main_module.workforce import (
+    #     CallCenterEmulator,
+    #     EmulatorConfig,
+    #     HybridForecaster,
+    #     SupplyOptimizer,
+    # )
+
+    # # Step 1: Train the demand forecasting model
+    # print("=" * 60)
+    # print("Startup: training HybridForecaster...")
+    # print("(This takes ~1 minute — only happens once at startup)")
+    # print("=" * 60)
+
+    # forecaster = HybridForecaster()
+    # forecaster.train(
+    #     str(DATA_PATH),
+    #     test_year=2025,
+    #     tune_hyperparameters=True,
+    #     n_trials=10,
+    # )
+
+    # # Step 2: Set up the call center emulator with business config
+    # emulator = CallCenterEmulator(
+    #     config=EmulatorConfig(
+    #         avg_handle_time=300,             # average call handle time = 5 minutes
+    #         sla_threshold_seconds=60,        # SLA = must answer within 60 seconds
+    #         interval_duration_seconds=1800,  # each time slot = 30 minutes
+    #     )
+    # )
+
+    # # Step 3: Set up the supply optimizer (uses the emulator internally)
+    # optimizer = SupplyOptimizer(emulator, max_supply=500)
+
+    # model_ready = True
+    # print("=" * 60)
+    # print("Startup complete! API is ready.")
+    # print("=" * 60)
 
 
 # ---------------------------------------------------------------------------
@@ -156,15 +246,17 @@ def get_placeholder_slots():
 
     slots = []
     for t in time_slots:
+        # NOTE: all zeros = model not ready / parquet files not found.
+        # If you see zeros in the dashboard, it means startup() failed or is still running.
         slots.append({
             "time": t,
-            "predicted_calls": random.randint(10, 120),
-            "agents": random.randint(4, 50),
-            "avg_wait_time": round(random.uniform(5, 60), 1),
-            "sla_compliance": round(random.uniform(80, 99), 1),
-            "utilization_rate": round(random.uniform(40, 85), 1),
-            "abandonment_rate": round(random.uniform(0, 5), 1),
-            "is_feasible": True,
+            "predicted_calls": 0,
+            "agents": 0,
+            "avg_wait_time": 0,
+            "sla_compliance": 0,
+            "utilization_rate": 0,
+            "abandonment_rate": 0,
+            "is_feasible": False,
         })
     return slots
 
@@ -202,53 +294,74 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
       max_occupancy: max agent occupancy as a fraction  (e.g. 0.85 = 85%)
                      comes from the Max Occupancy slider in React
     """
-    from main_module.workforce import OptimizationConstraints
+    # --- MVP: XGBoost predictions + historical lookup tables ---
+    # Uses xgb_model for call volume, and precomputed lookups for all other metrics.
+    ts  = pd.Timestamp(date_str)
+    dow = ts.dayofweek
+    tax_day     = pd.Timestamp(f"{ts.year}-04-15")
+    days_to_tax = (tax_day - ts.normalize()).days
 
-    # Build constraints from the values the user set in the React sliders
-    constraints = OptimizationConstraints(
-        min_sla=min_sla,
-        max_wait_time=max_wait_time,
-        max_occupancy=max_occupancy,
-    )
-
-    # Step 1: Ask the forecaster "how many calls on this date, per 30-min slot?"
-    # predict_day() returns a DataFrame with 48 rows (one per 30-min slot in a day)
-    demand_df = forecaster.predict_day(date_str)
-
-    # Add a human-readable time column like "09:00" or "14:30"
-    demand_df["time"] = demand_df["interval_start"].dt.strftime("%H:%M")
-
-    # Mark which slots are during business hours (5am to 5pm, all 7 days)
-    demand_df["is_open"] = (
-        (demand_df["interval_start"].dt.hour >= 5)
-        & (demand_df["interval_start"].dt.hour < 17)
-    )
-
-    # Only keep open slots that have at least 1 predicted call
-    open_slots = demand_df[demand_df["is_open"] & (demand_df["predicted_calls"] > 0)]
-
-    # Step 2: For each open slot, find the minimum agents needed
     results = []
-    for _, row in open_slots.iterrows():
-        demand = int(row["predicted_calls"])
+    for hour in range(5, 17):
+        for minute in (0, 30):
+            slot = hour * 2 + minute // 30
+            key  = (dow, slot)
 
-        # optimizer.optimize() tries 1 agent, 2 agents, 3 agents...
-        # and stops at the minimum number that satisfies all 3 constraints
-        supply_result = optimizer.optimize(demand, constraints)
-        metrics = supply_result.predicted_metrics
+            # Build one-row feature vector for XGBoost (same features as training)
+            feat_row = pd.DataFrame([{
+                "hour_sin":      np.sin(2 * np.pi * hour / 24),
+                "hour_cos":      np.cos(2 * np.pi * hour / 24),
+                "day_sin":       np.sin(2 * np.pi * dow / 7),
+                "day_cos":       np.cos(2 * np.pi * dow / 7),
+                "month":         ts.month,
+                "days_to_tax":   days_to_tax,
+                "is_tax_season": int(ts.month <= 4 and days_to_tax >= 0),
+            }])
+            predicted_calls = max(0, round(xgb_model.predict(feat_row[xgb_features])[0]))
 
-        results.append({
-            "time": row["time"],
-            "predicted_calls": demand,
-            "agents": supply_result.headcount,
-            "avg_wait_time": round(metrics.avg_wait_time, 1),
-            "sla_compliance": round(metrics.sla_compliance, 1),
-            "utilization_rate": round(metrics.utilization_rate, 1),
-            "abandonment_rate": round(metrics.abandonment_rate, 1),
-            "is_feasible": supply_result.is_feasible,
-        })
+            results.append({
+                "time":             f"{hour:02d}:{minute:02d}",
+                "predicted_calls":  predicted_calls,
+                "agents":           round(agents_lookup.get(key, 5)),
+                "avg_wait_time":    round(wait_time_lookup.get(key, 30.0), 1),
+                "sla_compliance":   round(sla_lookup.get(key, 90.0), 1),
+                "utilization_rate": round(occupancy_lookup.get(key, 80.0), 1),
+                "abandonment_rate": 2.0,
+                "is_feasible":      True,
+            })
 
     return results
+
+    # --- OLD pipeline using HybridForecaster + SupplyOptimizer (kept for reference) ---
+    # from main_module.workforce import OptimizationConstraints
+    # constraints = OptimizationConstraints(
+    #     min_sla=min_sla,
+    #     max_wait_time=max_wait_time,
+    #     max_occupancy=max_occupancy,
+    # )
+    # demand_df = forecaster.predict_day(date_str)
+    # demand_df["time"] = demand_df["interval_start"].dt.strftime("%H:%M")
+    # demand_df["is_open"] = (
+    #     (demand_df["interval_start"].dt.hour >= 5)
+    #     & (demand_df["interval_start"].dt.hour < 17)
+    # )
+    # open_slots = demand_df[demand_df["is_open"] & (demand_df["predicted_calls"] > 0)]
+    # results = []
+    # for _, row in open_slots.iterrows():
+    #     demand = int(row["predicted_calls"])
+    #     supply_result = optimizer.optimize(demand, constraints)
+    #     metrics = supply_result.predicted_metrics
+    #     results.append({
+    #         "time": row["time"],
+    #         "predicted_calls": demand,
+    #         "agents": supply_result.headcount,
+    #         "avg_wait_time": round(metrics.avg_wait_time, 1),
+    #         "sla_compliance": round(metrics.sla_compliance, 1),
+    #         "utilization_rate": round(metrics.utilization_rate, 1),
+    #         "abandonment_rate": round(metrics.abandonment_rate, 1),
+    #         "is_feasible": supply_result.is_feasible,
+    #     })
+    # return results
 
 
 # ---------------------------------------------------------------------------
@@ -307,10 +420,11 @@ def get_metrics(date: str = "2025-04-15"):
         )
 
     # Aggregate all per-slot numbers into a single day-level summary
-    total_calls = sum(s["predicted_calls"] for s in slots)
-    peak_agents = max(s["agents"] for s in slots)
-    avg_sla = round(sum(s["sla_compliance"] for s in slots) / len(slots), 1)
-    avg_wait = round(sum(s["avg_wait_time"] for s in slots) / len(slots), 1)
+    total_calls   = sum(s["predicted_calls"] for s in slots)
+    peak_agents   = max(s["agents"] for s in slots)
+    avg_sla       = round(sum(s["sla_compliance"] for s in slots) / len(slots), 1)
+    avg_wait      = round(sum(s["avg_wait_time"] for s in slots) / len(slots), 1)
+    avg_occupancy = round(sum(s["utilization_rate"] for s in slots) / len(slots), 1)
     feasible_count = sum(1 for s in slots if s["is_feasible"])
 
     return {
@@ -319,6 +433,7 @@ def get_metrics(date: str = "2025-04-15"):
         "peak_agents": peak_agents,
         "avg_sla_compliance": avg_sla,
         "avg_wait_time": avg_wait,
+        "avg_occupancy": avg_occupancy,
         "feasible_intervals": feasible_count,
         "total_intervals": len(slots),
         "model_ready": model_ready,
@@ -347,29 +462,27 @@ def get_forecast(date: str = "2025-04-15"):
     """
     if not model_ready:
         slots = get_placeholder_slots()
-        return [{"time": s["time"], "predicted_calls": s["predicted_calls"]} for s in slots]
+        return [{"time": s["time"], "predicted_calls": s["predicted_calls"], "model_used": "placeholder"} for s in slots]
 
     try:
-        demand_df = forecaster.predict_day(date)
+        slots = run_pipeline_for_date(date, 0.80, 60.0, 0.85)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Add time column and filter to business hours only (5am to 5pm, all 7 days)
-    demand_df["time"] = demand_df["interval_start"].dt.strftime("%H:%M")
-    demand_df["is_open"] = (
-        (demand_df["interval_start"].dt.hour >= 5)
-        & (demand_df["interval_start"].dt.hour < 17)
-    )
-    open_df = demand_df[demand_df["is_open"]]
+    return [{"time": s["time"], "predicted_calls": s["predicted_calls"], "model_used": "xgboost"} for s in slots]
 
-    return [
-        {
-            "time": row["time"],
-            "predicted_calls": int(row["predicted_calls"]),
-            "model_used": row["model_used"],
-        }
-        for _, row in open_df.iterrows()
-    ]
+    # --- OLD forecast using HybridForecaster (kept for reference) ---
+    # demand_df = forecaster.predict_day(date)
+    # demand_df["time"] = demand_df["interval_start"].dt.strftime("%H:%M")
+    # demand_df["is_open"] = (
+    #     (demand_df["interval_start"].dt.hour >= 5)
+    #     & (demand_df["interval_start"].dt.hour < 17)
+    # )
+    # open_df = demand_df[demand_df["is_open"]]
+    # return [
+    #     {"time": row["time"], "predicted_calls": int(row["predicted_calls"]), "model_used": row["model_used"]}
+    #     for _, row in open_df.iterrows()
+    # ]
 
 
 @app.get("/api/staffing")

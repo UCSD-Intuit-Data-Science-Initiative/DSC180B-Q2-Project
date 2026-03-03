@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MetricCard } from '../components/MetricCard';
 import { WorkforceManagementPanel } from '../components/WorkforceManagementPanel';
 import { DemandForecastChart } from '../components/DemandChart';
@@ -251,18 +251,27 @@ export default function Dashboard() {
         slaChange: 'Target',
         slaPositive: true,
         isFuture: true,
+        isCurrentWeek: false,
+        targetSLA: `Target: ${TARGET_SLA}%`,
+        prevWeekSLA: '',
 
         waitTime: `${TARGET_WAIT_TIME}s`,
         waitChange: 'Target',
         waitPositive: true,
+        targetWaitTime: `Target: ${TARGET_WAIT_TIME}s`,
+        prevWeekWait: '',
 
         occupancy: `${TARGET_OCCUPANCY}%`,
         occupancyChange: 'Target',
         occupancyPositive: true,
+        targetOccupancy: `Target: ${TARGET_OCCUPANCY}%`,
+        prevWeekOccupancy: '',
 
         totalCalls: forecastedTotalCalls.toLocaleString(),
         callsChange: 'Forecast',
-        callsPositive: true
+        callsPositive: true,
+        targetCalls: '',
+        prevWeekCalls: ''
       };
     }
 
@@ -367,25 +376,29 @@ export default function Dashboard() {
         isFuture: false,
         isCurrentWeek: true,
         targetSLA: `Target: ${TARGET_SLA}%`,
-        prevWeekSLA: `${prevWtdSLA.toFixed(1)}%`,
+        // prevWeekSLA: `${prevWtdSLA.toFixed(1)}%`,  // TODO: wire to real backend data
+        prevWeekSLA: '0',
 
         waitTime: `${Math.round(wtdAvgWait)}s`,
         waitChange: `${waitChange >= 0 ? '+' : ''}${Math.round(waitChange)}s`,
         waitPositive: waitChange <= 0,
         targetWaitTime: `Target: ${TARGET_WAIT_TIME}s`,
-        prevWeekWait: `${Math.round(prevWtdAvgWait)}s`,
+        // prevWeekWait: `${Math.round(prevWtdAvgWait)}s`,  // TODO: wire to real backend data
+        prevWeekWait: '0',
 
         occupancy: `${wtdAvgOccupancy.toFixed(1)}%`,
         occupancyChange: `${occupancyChange >= 0 ? '+' : ''}${occupancyChange.toFixed(1)}%`,
         occupancyPositive: occupancyChange >= 0,
         targetOccupancy: `Target: ${TARGET_OCCUPANCY}%`,
-        prevWeekOccupancy: `${prevWtdAvgOccupancy.toFixed(1)}%`,
+        // prevWeekOccupancy: `${prevWtdAvgOccupancy.toFixed(1)}%`,  // TODO: wire to real backend data
+        prevWeekOccupancy: '0',
 
         totalCalls: wtdTotalCalls.toLocaleString(),
         callsChange: `${callsChange >= 0 ? '+' : ''}${callsChange.toLocaleString()}`,
         callsPositive: callsChange >= 0,
         targetCalls: '',
-        prevWeekCalls: prevWtdTotalCalls.toLocaleString()
+        // prevWeekCalls: prevWtdTotalCalls.toLocaleString(),  // TODO: wire to real backend data
+        prevWeekCalls: '0'
       };
     }
 
@@ -579,7 +592,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Avg. Agent Occupancy"
-                      value={weeklyMetrics.occupancy}
+                      value={metrics ? `${metrics.avg_occupancy.toFixed(1)}%` : '—'}
                       change={weeklyMetrics.occupancyChange}
                       isPositive={weeklyMetrics.occupancyPositive}
                       icon={TrendingUp}
