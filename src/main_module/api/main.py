@@ -52,6 +52,7 @@ wait_time_lookup = {}    # (day_of_week, slot) -> avg wait time (seconds)
 sla_lookup       = {}    # (day_of_week, slot) -> avg SLA %
 occupancy_lookup = {}    # (day_of_week, slot) -> avg occupancy %
 agents_lookup    = {}    # (day_of_week, slot) -> avg agent count
+daily_std_lookup = {}    # day_of_week -> historical std dev of daily call volume (for error bars)
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +90,7 @@ def startup():
     the rest of the code would not be able to see the trained model.
     """
     global forecaster, emulator, optimizer, model_ready
-    global xgb_model, xgb_features, wait_time_lookup, sla_lookup, occupancy_lookup, agents_lookup
+    global xgb_model, xgb_features, wait_time_lookup, sla_lookup, occupancy_lookup, agents_lookup, daily_std_lookup
 
     # --- MVP: XGBoost + parquet lookup tables ---
     # Trains XGBoost on dataset_1 call volume; builds lookup tables from dataset_1 and dataset_4.
@@ -134,6 +135,13 @@ def startup():
         )
         xgb_model.fit(train[xgb_features], train["call_volume"])
         print("XGBoost trained on call volume.")
+
+        # Daily std dev lookup — used for error bars in the weekly forecast chart
+        df_agg["date_only"] = df_agg.index.normalize()
+        df_agg["dow_day"]   = df_agg.index.dayofweek
+        daily_totals     = df_agg.groupby(["dow_day", "date_only"])["call_volume"].sum().reset_index()
+        daily_std_lookup = daily_totals.groupby("dow_day")["call_volume"].std().to_dict()
+        print("Daily std dev lookup built for weekly chart error bars.")
 
         # Wait time and SLA lookups from raw call records
         call_df["wait_secs"] = (call_df["start"] - call_df["arrival"]).dt.total_seconds().clip(lower=0)
@@ -483,6 +491,50 @@ def get_forecast(date: str = "2025-04-15"):
     #     {"time": row["time"], "predicted_calls": int(row["predicted_calls"]), "model_used": row["model_used"]}
     #     for _, row in open_df.iterrows()
     # ]
+
+
+@app.get("/api/weekly-forecast")
+def get_weekly_forecast(week_start: str = "2025-04-14"):
+    """
+    Return 7 days of XGBoost-predicted total call volume for the given week.
+    Powers the Weekly Demand Forecast bar chart in the React dashboard.
+
+    How React calls this:
+      fetch("http://localhost:8000/api/weekly-forecast?week_start=2025-04-14")
+
+    week_start should be a Monday (YYYY-MM-DD). Returns 7 items, one per day Mon–Sun.
+    `range` is the historical std dev of daily call volume for that day-of-week,
+    used as the ± error bar in the bar chart.
+
+    Example response:
+      [
+        {"date": "2025-04-14", "day_label": "Mon 4/14", "total_calls": 27500, "range": 1800},
+        {"date": "2025-04-15", "day_label": "Tue 4/15", "total_calls": 28100, "range": 1800},
+        ...
+      ]
+    """
+    if not model_ready:
+        return []
+
+    try:
+        start = pd.Timestamp(week_start)
+        result = []
+        for i in range(7):
+            day = start + pd.Timedelta(days=i)
+            date_str = day.strftime("%Y-%m-%d")
+            slots = run_pipeline_for_date(date_str, 0.80, 60.0, 0.85)
+            total_calls = sum(s["predicted_calls"] for s in slots)
+            dow = day.dayofweek
+            std = daily_std_lookup.get(dow, 1000)
+            result.append({
+                "date":        date_str,
+                "day_label":   f"{day.strftime('%a')} {day.month}/{day.day}",
+                "total_calls": total_calls,
+                "range":       round(std),
+            })
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/staffing")

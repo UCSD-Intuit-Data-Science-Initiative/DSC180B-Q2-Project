@@ -45,6 +45,19 @@ export interface StaffingSlot {
   is_feasible: boolean;
 }
 
+export interface WeeklyForecastDay {
+  date: string;        // "YYYY-MM-DD"
+  day_label: string;   // "Mon 3/3"
+  total_calls: number;
+  range: number;       // ± historical std dev, used as error bar
+}
+
+export async function fetchWeeklyForecast(weekStart: Date): Promise<WeeklyForecastDay[]> {
+  const res = await fetch(`${API_BASE}/api/weekly-forecast?week_start=${formatDate(weekStart)}`);
+  if (!res.ok) throw new Error(`weekly-forecast fetch failed: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchStaffing(
   date: Date,
   minSla: number,
