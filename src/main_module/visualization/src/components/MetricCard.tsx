@@ -8,18 +8,17 @@ interface MetricCardProps {
   change: string;
   isPositive: boolean;
   icon: LucideIcon;
+  timeFrame?: string;
+  targetText?: string;
+  prevWeekValue?: string;
 }
 
-export function MetricCard({ title, value, change, isPositive, icon: Icon }: MetricCardProps) {
+export function MetricCard({ title, value, change, isPositive, icon: Icon, timeFrame, targetText, prevWeekValue }: MetricCardProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      style={{
-        background: 'rgba(255, 255, 255, 0.10)',
-        boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.10), 0 1px 2px -1px rgba(0, 0, 0, 0.10)'
-      }}
-      className="backdrop-blur-xl p-6 rounded-xl flex flex-col justify-between border border-slate-100 dark:border-slate-700 dark:bg-slate-800/50"
+      className="backdrop-blur-xl p-6 rounded-xl flex flex-col justify-between border border-slate-200/50 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 h-[190px]"
     >
       <div className="flex justify-between items-start mb-4">
         <div className="p-2 bg-blue-50/80 dark:bg-blue-900/30 rounded-lg">
@@ -32,6 +31,12 @@ export function MetricCard({ title, value, change, isPositive, icon: Icon }: Met
       <div>
         <h3 className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-1">{title}</h3>
         <div className="text-2xl font-bold text-slate-900 dark:text-white">{value}</div>
+        {targetText && (
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{targetText}</p>
+        )}
+        {prevWeekValue && (
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Previous Week: {prevWeekValue}</p>
+        )}
       </div>
     </motion.div>
   );
