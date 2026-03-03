@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceArea } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceArea, ErrorBar } from 'recharts';
 import { ChevronLeft, ChevronRight, Calendar, RotateCcw } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
@@ -52,6 +52,7 @@ export function DemandForecastChart({ weekStart, onPrevWeek, onNextWeek, selecte
         name: `${weekday} ${dateStr}`,
         fullName: day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
         calls: Math.max(4000, Math.floor(baseVolume + noise)),
+        range: isWeekend ? 400 : 800,
         isToday: isToday,
         isSelected: isSelected
       });
@@ -226,6 +227,7 @@ export function DemandForecastChart({ weekStart, onPrevWeek, onNextWeek, selecte
                         opacity={entry.isSelected ? 1 : entry.isToday ? 0.9 : 0.6}
                     />
                 ))}
+                <ErrorBar dataKey="range" width={4} strokeWidth={2} stroke="#94A3B8" />
               </Bar>
             </BarChart>
           </ResponsiveContainer>

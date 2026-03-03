@@ -3,6 +3,9 @@ FROM python:3.11-slim AS dev
 
 WORKDIR /app
 
+# Install system library required by LightGBM (OpenMP)
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+
 # Copy dependency list and install
 # Docker caches this layer — if requirements.txt hasn't changed,
 # pip install is skipped on rebuild (makes rebuilds faster)
@@ -24,6 +27,8 @@ CMD ["python", "-m", "uvicorn", "main_module.api.main:app", "--host", "0.0.0.0",
 FROM python:3.11-slim AS production
 
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
 
 COPY src/main_module/api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

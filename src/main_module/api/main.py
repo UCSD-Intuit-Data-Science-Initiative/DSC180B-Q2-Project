@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # When running locally: looks for the data file relative to project root
 # When running in Docker: the project root is mounted at /app
-DATA_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / "data" / "interim" / "mock_intuit_2year_data.csv"
+DATA_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "interim" / "mock_intuit_2year_data.csv"
 
 # ---------------------------------------------------------------------------
 # Global variables
@@ -218,11 +218,10 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
     # Add a human-readable time column like "09:00" or "14:30"
     demand_df["time"] = demand_df["interval_start"].dt.strftime("%H:%M")
 
-    # Mark which slots are during business hours (Monday-Friday, 5am to 5pm)
+    # Mark which slots are during business hours (5am to 5pm, all 7 days)
     demand_df["is_open"] = (
         (demand_df["interval_start"].dt.hour >= 5)
         & (demand_df["interval_start"].dt.hour < 17)
-        & (demand_df["interval_start"].dt.dayofweek < 5)  # 0=Monday, 4=Friday
     )
 
     # Only keep open slots that have at least 1 predicted call
@@ -355,12 +354,11 @@ def get_forecast(date: str = "2025-04-15"):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Add time column and filter to business hours only
+    # Add time column and filter to business hours only (5am to 5pm, all 7 days)
     demand_df["time"] = demand_df["interval_start"].dt.strftime("%H:%M")
     demand_df["is_open"] = (
         (demand_df["interval_start"].dt.hour >= 5)
         & (demand_df["interval_start"].dt.hour < 17)
-        & (demand_df["interval_start"].dt.dayofweek < 5)
     )
     open_df = demand_df[demand_df["is_open"]]
 
