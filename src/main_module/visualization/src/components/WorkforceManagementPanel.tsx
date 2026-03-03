@@ -22,10 +22,8 @@ export function WorkforceManagementPanel({
   dailyBreakdownData,
   onJumpToToday
 }: WorkforceManagementPanelProps) {
-  // State to hold staffing data calculated by SimulationPanel
-  const [staffingData, setStaffingData] = useState<Array<{ time: string; calls: number; agents: number }>>(
-    dailyBreakdownData.map(slot => ({ ...slot, agents: 0 }))
-  );
+  // State to hold staffing data from API (via SimulationPanel)
+  const [staffingData, setStaffingData] = useState<Array<{ time: string; calls: number; agents: number }>>([]);
 
   // State to hold current stats from SimulationPanel
   const [currentStats, setCurrentStats] = useState<{

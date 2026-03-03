@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend } from 'recharts';
 import { Activity, ChevronLeft, ChevronRight, Phone, Users } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
-import { fetchForecast } from '../lib/api';
+// import { fetchForecast } from '../lib/api'; // Unused — chart uses staffingData prop instead
 
 interface DailyBreakdownChartProps {
   selectedDate: Date;
@@ -32,7 +32,8 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
   // Current time state for the reference line
   const [currentTimeLabel, setCurrentTimeLabel] = useState<string | null>(null);
 
-  const [data, setData] = useState<{ time: string; calls: number }[]>([]);
+  // Unused — chart renders from staffingData prop, not local fetch
+  // const [data, setData] = useState<{ time: string; calls: number }[]>([]);
 
   useEffect(() => {
     if (isTodayMemo) {
@@ -68,11 +69,12 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
 
   }, [isTodayMemo]);
 
-  useEffect(() => {
-    fetchForecast(selectedDate)
-      .then(slots => setData(slots.map(s => ({ time: s.time, calls: s.predicted_calls }))))
-      .catch(console.error);
-  }, [selectedDate]);
+  // Unused — chart renders from staffingData prop, not local fetch
+  // useEffect(() => {
+  //   fetchForecast(selectedDate)
+  //     .then(slots => setData(slots.map(s => ({ time: s.time, calls: s.predicted_calls }))))
+  //     .catch(console.error);
+  // }, [selectedDate]);
 
   const formatDate = (date: Date) => {
     const today = new Date();
