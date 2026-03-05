@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pickle
 from pandas.tseries.holiday import USFederalHolidayCalendar
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 
@@ -7,7 +8,6 @@ from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 # 1. INPUT: Load your latest historical data
 # ==============================================================================
 print("Loading historical data...")
-<<<<<<< HEAD
 df = pd.read_parquet('../data/raw/dataset_1_call_related.parquet')
 df['arrival_time_utc'] = pd.to_datetime(df['arrival_time_utc'])
 df = df.sort_values('arrival_time_utc')
@@ -24,84 +24,47 @@ df_agg = df_agg.asfreq('30min', fill_value=0)
 # ==============================================================================
 # 1.5 DATA CLEANSING (Smooth known historical anomalies before training)
 # ==============================================================================
-print("Smoothing known historical anomalies...")
-outage_start = '2025-08-29 12:00:00'
-outage_end = '2025-08-29 16:00:00'
-bad_data_mask = (df_agg.index >= outage_start) & (df_agg.index <= outage_end)
+print("Smoothing known historical anomalies (2025-08-29)...")
+outlier_start = '2025-08-29 00:00:00'
+outlier_end = '2025-08-29 23:59:59'
+bad_data_mask = (df_agg.index >= outlier_start) & (df_agg.index <= outlier_end)
 
 # Replace the spiked volume with NaN, then interpolate using surrounding normal days
 df_agg.loc[bad_data_mask, 'Call_Volume'] = np.nan
 df_agg['Call_Volume'] = df_agg['Call_Volume'].interpolate(method='time')
-=======
-df = pd.read_csv("../data/raw/mock_intuit_2year_data.csv")
-df["Arrival time"] = pd.to_datetime(df["Arrival time"])
-df = df.sort_values("Arrival time")
-
-# Aggregate to 30-min intervals (The model's native language)
-df_agg = (
-    df.set_index("Arrival time")
-    .resample("30min")
-    .size()
-    .to_frame("Call_Volume")
-)
-df_agg = df_agg.asfreq("30min", fill_value=0)
->>>>>>> master
 
 # ==============================================================================
 # 2. CREATE FUTURE SCHEDULE (The "Blank Page" to fill)
 # ==============================================================================
-<<<<<<< HEAD
-=======
-# We want to predict the next 28 days (4 weeks) starting from where data ends
->>>>>>> master
 last_date = df_agg.index.max()
 start_future = last_date + pd.Timedelta(minutes=30)
 end_future = start_future + pd.Timedelta(days=28) - pd.Timedelta(minutes=30)
 
-<<<<<<< HEAD
 future_dates = pd.date_range(start=start_future, end=end_future, freq='30min')
 future_df = pd.DataFrame(index=future_dates)
-future_df['Call_Volume'] = np.nan  # This is what we need to predict!
+future_df['Call_Volume'] = np.nan  
 
 print(f"Forecasting period: {start_future} to {end_future}")
 
 df_combined = pd.concat([df_agg, future_df])
 
 # ==============================================================================
-# 3. FEATURE ENGINEERING (Upgraded Calendar Logic)
-=======
-future_dates = pd.date_range(start=start_future, end=end_future, freq="30min")
-future_df = pd.DataFrame(index=future_dates)
-future_df["Call_Volume"] = np.nan  # This is what we need to predict!
-
-print(f"Forecasting period: {start_future} to {end_future}")
-
-# Combine History + Future (Crucial for calculating Lags)
-# The model needs to look back 4 weeks from the 'Future' rows to see 'History'
-df_combined = pd.concat([df_agg, future_df])
-
-
-# ==============================================================================
-# 3. FEATURE ENGINEERING (Apply the Logic we built)
->>>>>>> master
+# 3. FEATURE ENGINEERING 
 # ==============================================================================
 def create_features(data):
     df = data.copy()
 
-<<<<<<< HEAD
     # --- A. Calendar & Time ---
     cal = USFederalHolidayCalendar()
     holidays = cal.holidays(start=df.index.min(), end=df.index.max())
     
-    # Define Major Holidays (Center closed/ghost town)
     major_holidays = [
-        '2024-01-01', '2025-01-01', '2026-01-01', # New Years
-        '2024-11-28', '2025-11-27', '2026-11-26', # Thanksgiving
-        '2024-12-25', '2025-12-25', '2026-12-25'  # Christmas
+        '2024-01-01', '2025-01-01', '2026-01-01', 
+        '2024-11-28', '2025-11-27', '2026-11-26', 
+        '2024-12-25', '2025-12-25', '2026-12-25'  
     ]
     major_holidays = pd.to_datetime(major_holidays)
     
-    # Split into distinct buckets
     df['is_major_holiday'] = df.index.normalize().isin(major_holidays).astype(int)
     df['is_minor_holiday'] = (
         df.index.normalize().isin(holidays) & ~df.index.normalize().isin(major_holidays)
@@ -139,11 +102,9 @@ def create_features(data):
 df_features = create_features(df_combined)
 
 # ==============================================================================
-# 4. TRAIN MODELS
+# 4. TRAIN MODELS (EXACT HYPERPARAMETERS RESTORED)
 # ==============================================================================
-train_data = df_features.dropna(subset=['Call_Volume'])
-train_data = train_data.dropna() # Drop initial warm-up period
-
+train_data = df_features.dropna(subset=['Call_Volume', 'lag_4weeks', 'trend_4w'])
 predict_data = df_features[df_features['Call_Volume'].isna()].copy()
 
 features = [
@@ -154,18 +115,27 @@ features = [
     'lag_4weeks', 'trend_4w', 'max_4w',
 ]
 
-print("Training Random Forest...")
+# --- Model A: Random Forest ---
 rf_model = RandomForestRegressor(
-    n_estimators=200, min_samples_leaf=4, max_depth=25,
-    max_features='sqrt', n_jobs=-1, random_state=42,
+    n_estimators=500, 
+    min_samples_split=2, 
+    min_samples_leaf=1, 
+    max_features='log2',
+    max_depth=None
 )
+print("Training Random Forest...")
 rf_model.fit(train_data[features], train_data['Call_Volume'])
 
-print("Training Gradient Boosting...")
+# --- Model B: Gradient Boosting Regressor ---
 gb_model = GradientBoostingRegressor(
-    n_estimators=1500, learning_rate=0.01, max_depth=3,
-    min_samples_leaf=3, subsample=1.0, max_features=0.7, random_state=42,
+    n_estimators=1000,
+    min_samples_leaf=5,
+    max_depth=7,
+    learning_rate=0.01,
+    max_features=0.9,
+    loss='squared_error'
 )
+print("Training Gradient Boosting...")
 gb_model.fit(train_data[features], train_data['Call_Volume'])
 
 # ==============================================================================
@@ -188,145 +158,28 @@ holiday_profiles = historical_holidays.groupby(
 # Overwrite ML predictions if a future day is a closed holiday
 for idx, row in predict_data[predict_data['is_major_holiday'] == 1].iterrows():
     key = (idx.month, idx.day, idx.time())
-    if key in holiday_profiles:
-        predict_data.loc[idx, 'Final_Forecast'] = holiday_profiles[key]
-    else:
-        predict_data.loc[idx, 'Final_Forecast'] = 15 # Safety fallback
+    predict_data.loc[idx, 'Final_Forecast'] = holiday_profiles.get(key, 15)
 
 # Round to nearest whole call
 predict_data['Final_Forecast'] = predict_data['Final_Forecast'].round().astype(int)
 
 # ==============================================================================
-# 6. OUTPUT: Save to CSV
+# 6. OUTPUT & SAVE MODEL
 # ==============================================================================
 output_df = predict_data[['Final_Forecast']]
 output_file = "Forecast_Next_28_Days.csv"
 output_df.to_csv(output_file)
 
+# Save Models and Metadata
+model_bundle = {
+    'rf_model': rf_model,
+    'gb_model': gb_model,
+    'features': features,
+    'holiday_profiles': holiday_profiles
+}
+
+with open('call_volume_model_bundle.pkl', 'wb') as f:
+    pickle.dump(model_bundle, f)
+
 print(f"\nSuccess! Forecast saved to {output_file}")
-print("Preview of first 5 intervals:")
-print(output_df.head())
-=======
-    # Calendar & Time
-    cal = USFederalHolidayCalendar()
-    holidays = cal.holidays(start=df.index.min(), end=df.index.max())
-    df["is_holiday"] = df.index.normalize().isin(holidays).astype(int)
-
-    df["hour"] = df.index.hour
-    df["dayofweek"] = df.index.dayofweek
-    df["month"] = df.index.month
-    df["weekofyear"] = df.index.isocalendar().week.astype(int)
-    df["is_january"] = (df["month"] == 1).astype(int)
-
-    # Cyclical Encoding
-    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
-    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
-    df["day_sin"] = np.sin(2 * np.pi * df["dayofweek"] / 7)
-    df["day_cos"] = np.cos(2 * np.pi * df["dayofweek"] / 7)
-
-    # Tax Season Logic
-    tax_days = pd.to_datetime(df.index.year.astype(str) + "-04-15")
-    df["days_to_tax_day"] = (tax_days - df.index.normalize()).days
-    df["is_tax_season"] = (
-        (df["month"] <= 4) & (df["days_to_tax_day"] >= 0)
-    ).astype(int)
-    df["is_post_tax_drop"] = (
-        (df["days_to_tax_day"] < 0) & (df["days_to_tax_day"] > -31)
-    ).astype(int)
-
-    # Lags & Trends (The "Memory" of the model)
-    # Note: These will be NaN for the first 4 weeks of history, which is fine
-    df["lag_4weeks"] = df["Call_Volume"].shift(48 * 28)
-    df["trend_4w"] = (
-        df["Call_Volume"].shift(48 * 28).rolling(window=48 * 7).mean()
-    )
-    df["max_4w"] = (
-        df["Call_Volume"].shift(48 * 28).rolling(window=48 * 7).max()
-    )
-
-    return df
-
-
-df_features = create_features(df_combined)
-
-# ==============================================================================
-# 4. TRAIN & PREDICT
-# ==============================================================================
-# Train Set: All rows where we actually know the Call_Volume (History)
-train_data = df_features.dropna(subset=["Call_Volume"])
-
-# --- THE FIX IS HERE ---
-# Drop the first 4 weeks of history where lags are NaN (the "warm-up" period)
-train_data = train_data.dropna()
-# -----------------------
-
-# Prediction Set: All rows where Call_Volume is NaN (Future)
-predict_data = df_features[df_features["Call_Volume"].isna()].copy()
-
-features = [
-    "hour_sin",
-    "hour_cos",
-    "day_sin",
-    "day_cos",
-    "month",
-    "weekofyear",
-    "is_january",
-    "is_holiday",
-    "days_to_tax_day",
-    "is_tax_season",
-    "is_post_tax_drop",
-    "lag_4weeks",
-    "trend_4w",
-    "max_4w",
-]
-
-# --- A. Train Random Forest ---
-print("Training Random Forest...")
-rf = RandomForestRegressor(
-    n_estimators=200,
-    min_samples_leaf=4,
-    max_depth=25,
-    max_features="sqrt",
-    n_jobs=-1,
-    random_state=42,
-)
-rf.fit(train_data[features], train_data["Call_Volume"])
-
-# --- B. Train XGBoost ---
-print("Training XGBoost...")
-xgb_model = GradientBoostingRegressor(
-    n_estimators=1500,
-    learning_rate=0.01,
-    max_depth=3,
-    min_samples_leaf=3,
-    subsample=1.0,
-    max_features=0.7,
-    random_state=42,
-)
-xgb_model.fit(train_data[features], train_data["Call_Volume"])
-
-# --- C. Stack Predictions ---
-print("Generating Forecast...")
-predict_data["pred_rf"] = rf.predict(predict_data[features])
-predict_data["pred_xgb"] = xgb_model.predict(predict_data[features])
-
-# Average them (Stacking)
-predict_data["Final_Forecast"] = (
-    predict_data["pred_rf"] + predict_data["pred_xgb"]
-) / 2
-
-# Round to nearest whole call
-predict_data["Final_Forecast"] = (
-    predict_data["Final_Forecast"].round().astype(int)
-)
-
-# ==============================================================================
-# 5. OUTPUT: Save to CSV
-# ==============================================================================
-output_df = predict_data[["Final_Forecast"]]
-output_file = "Forecast_2026_Jan.csv"
-output_df.to_csv(output_file)
-
-print(f"Success! Forecast saved to {output_file}")
-print(output_df.head(10))  # Show user what the output looks like
->>>>>>> master
+print("Model bundle saved to 'call_volume_model_bundle.pkl'")
