@@ -10,6 +10,7 @@ services:
       - .:/app                                 # link local project root into container for hot reload
     environment:
       - PYTHONPATH=/app/src                    # lets `from main_module.workforce import ...` work
+      - PYTHONUNBUFFERED=1                     # flush print() immediately so logs appear in docker compose logs
 
   frontend:
     build:

@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceArea } from 'recharts';
-import { ChevronLeft, ChevronRight, Calendar, RotateCcw } from 'lucide-react';
+import { useMemo, useState, useEffect } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceArea, ErrorBar } from 'recharts';
+import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import { fetchWeeklyForecast, WeeklyForecastDay } from '../lib/api';
 
 interface DemandForecastChartProps {
   weekStart: Date;
@@ -12,52 +13,73 @@ interface DemandForecastChartProps {
   onJumpToToday: () => void;
 }
 
-// Simple seeded random function
-function seededRandom(seed: number) {
-    const x = Math.sin(seed) * 10000;
-    return x - Math.floor(x);
-}
+// Simple seeded random function (used by old hardcoded data generation below)
+// function seededRandom(seed: number) {
+//     const x = Math.sin(seed) * 10000;
+//     return x - Math.floor(x);
+// }
 
 export function DemandForecastChart({ weekStart, onPrevWeek, onNextWeek, selectedDate, onSelectDate, onJumpToToday }: DemandForecastChartProps) {
   const { theme } = useTheme();
 
+  const [apiData, setApiData] = useState<WeeklyForecastDay[]>([]);
+
+  useEffect(() => {
+    fetchWeeklyForecast(weekStart).then(setApiData).catch(console.error);
+  }, [weekStart]);
+
   const currentData = useMemo(() => {
-    const data = [];
-    const start = new Date(weekStart);
-    start.setHours(0, 0, 0, 0);
+    if (apiData.length === 0) return [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const selDate = new Date(selectedDate);
+    selDate.setHours(0, 0, 0, 0);
 
-    for (let i = 0; i < 7; i++) {
-      const day = new Date(start);
-      day.setDate(start.getDate() + i);
-
-      const isWeekend = day.getDay() === 0 || day.getDay() === 6;
-      const baseVolume = isWeekend ? 6000 : 12500;
-
-      // Use date timestamp as seed for consistent random values
-      const seed = day.getFullYear() * 10000 + (day.getMonth() + 1) * 100 + day.getDate();
-      const randomVal = seededRandom(seed);
-      const noise = randomVal * 2000 - 1000;
-
-      const isToday = day.getTime() === today.getTime();
-      const isSelected = day.getTime() === new Date(selectedDate.setHours(0,0,0,0)).getTime();
-      const mm = day.getMonth() + 1;
-      const dd = day.getDate();
-      const dateStr = `${mm}/${dd}`;
-      const weekday = day.toLocaleDateString('en-US', { weekday: 'short' });
-
-      data.push({
+    return apiData.map((d) => {
+      const day = new Date(d.date + 'T00:00:00');
+      return {
         date: day,
-        name: `${weekday} ${dateStr}`,
+        name: d.day_label,
         fullName: day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
-        calls: Math.max(4000, Math.floor(baseVolume + noise)),
-        isToday: isToday,
-        isSelected: isSelected
-      });
-    }
-    return data;
-  }, [weekStart, selectedDate]);
+        calls: d.total_calls,
+        range: d.range,
+        isToday: day.getTime() === today.getTime(),
+        isSelected: day.getTime() === selDate.getTime(),
+      };
+    });
+  }, [apiData, selectedDate]);
+
+  // --- OLD hardcoded data generation (kept for reference) ---
+  // const currentData = useMemo(() => {
+  //   const data = [];
+  //   const start = new Date(weekStart);
+  //   start.setHours(0, 0, 0, 0);
+  //   const today = new Date();
+  //   today.setHours(0, 0, 0, 0);
+  //   for (let i = 0; i < 7; i++) {
+  //     const day = new Date(start);
+  //     day.setDate(start.getDate() + i);
+  //     const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+  //     const baseVolume = isWeekend ? 6000 : 12500;
+  //     const seed = day.getFullYear() * 10000 + (day.getMonth() + 1) * 100 + day.getDate();
+  //     const randomVal = seededRandom(seed);
+  //     const noise = randomVal * 2000 - 1000;
+  //     const isToday = day.getTime() === today.getTime();
+  //     const isSelected = day.getTime() === new Date(selectedDate.setHours(0,0,0,0)).getTime();
+  //     const mm = day.getMonth() + 1;
+  //     const dd = day.getDate();
+  //     const dateStr = `${mm}/${dd}`;
+  //     const weekday = day.toLocaleDateString('en-US', { weekday: 'short' });
+  //     data.push({
+  //       date: day, name: `${weekday} ${dateStr}`,
+  //       fullName: day.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
+  //       calls: Math.max(4000, Math.floor(baseVolume + noise)),
+  //       range: isWeekend ? 400 : 800,
+  //       isToday: isToday, isSelected: isSelected
+  //     });
+  //   }
+  //   return data;
+  // }, [weekStart, selectedDate]);
 
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 6);
@@ -70,25 +92,19 @@ export function DemandForecastChart({ weekStart, onPrevWeek, onNextWeek, selecte
   const todayEntry = currentData.find(d => d.isToday);
 
   return (
-    <div
-        style={{
-            background: 'rgba(255, 255, 255, 0.10)',
-            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.10), 0 1px 2px -1px rgba(0, 0, 0, 0.10)'
-        }}
-        className="backdrop-blur-xl p-6 rounded-xl flex flex-col h-[400px] shrink-0 min-w-0 border border-slate-100 dark:border-slate-700 dark:bg-slate-800/50"
-    >
+    <div className="flex flex-col h-full min-h-0">
       <style>{`
         .recharts-wrapper {
           outline: none !important;
         }
       `}</style>
-      <div className="flex flex-row justify-between items-center mb-6 h-12 shrink-0">
+      <div className="flex flex-row justify-between items-center mb-4 shrink-0">
         <div className="flex items-center space-x-2">
           <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
              <Calendar className="w-5 h-5 text-blue-600 dark:text-blue-400" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Weekly Demand Forecast</h2>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">Weekly Demand Forecast</h2>
             <div className="flex items-center text-sm text-slate-500 dark:text-slate-400 mt-0">
               <span>{formatDateRange(weekStart, weekEnd)}</span>
             </div>
@@ -121,8 +137,8 @@ export function DemandForecastChart({ weekStart, onPrevWeek, onNextWeek, selecte
         </div>
       </div>
 
-      <div style={{ width: '100%', height: 280 }}>
-          <ResponsiveContainer width="100%" height={280} minWidth={0}>
+      <div style={{ width: '100%', height: 'calc(100% - 60px)' }}>
+          <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={currentData}
               margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
@@ -187,7 +203,7 @@ export function DemandForecastChart({ weekStart, onPrevWeek, onNextWeek, selecte
               />
               <Tooltip
                 cursor={{ fill: '#F1F5F9', opacity: 0.1 }}
-                content={({ active, payload, label }) => {
+                content={({ active, payload }) => {
                     if (active && payload && payload.length) {
                     const data = payload[0].payload;
                     return (
@@ -226,6 +242,7 @@ export function DemandForecastChart({ weekStart, onPrevWeek, onNextWeek, selecte
                         opacity={entry.isSelected ? 1 : entry.isToday ? 0.9 : 0.6}
                     />
                 ))}
+                <ErrorBar dataKey="range" width={4} strokeWidth={2} stroke="#94A3B8" />
               </Bar>
             </BarChart>
           </ResponsiveContainer>

@@ -1,280 +1,386 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Calculator, ArrowRight, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Target, Clock, Activity } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Calculator, RefreshCw, Target, Clock, Users, Phone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { fetchStaffing, StaffingSlot } from '../lib/api';
 
 interface SimulationPanelProps {
   initialCallVolume?: number;
   onReset?: () => void;
   selectedDate?: Date;
   dailyBreakdownData?: Array<{ time: string; calls: number }>;
+  onStaffingDataChange?: (data: Array<{ time: string; calls: number; agents: number }>) => void;
+  onCurrentStatsChange?: (stats: { currentCallVolume: number; currentRequiredAgents: number; peakCallVolume: number; peakRequiredAgents: number; currentTimeSlot: string; isToday: boolean }) => void;
 }
 
-export function SimulationPanel({ initialCallVolume, onReset, selectedDate, dailyBreakdownData }: SimulationPanelProps) {
+// Calculate required agents for a given call volume and targets
+function calculateRequiredAgents(callsPerHalfHour: number, targetSLA: number, targetWaitTime: number, targetOccupancy: number): number {
+  const callsPerHour = callsPerHalfHour * 2;
+
+  // Base agents needed for the workload (assuming 3-min average handle time = 20 calls/hr per agent)
+  const avgHandleTimeHours = 3 / 60;
+  const baseAgents = (callsPerHour * avgHandleTimeHours);
+
+  // Factor for SLA target
+  const slaFactor = targetSLA / 90;
+  const agentsForSLA = baseAgents * slaFactor * 1.15;
+
+  // Factor for wait time target
+  const waitTimeFactor = 30 / Math.max(targetWaitTime, 5);
+  const agentsForWaitTime = baseAgents * waitTimeFactor * 1.1;
+
+  // Factor for occupancy target
+  const occupancyFactor = 85 / Math.max(targetOccupancy, 50);
+  const agentsForOccupancy = baseAgents * occupancyFactor;
+
+  // Take the maximum to ensure all targets are met
+  const maxRequired = Math.max(agentsForSLA, agentsForWaitTime, agentsForOccupancy);
+
+  // Add a small buffer for variability
+  const finalAgents = Math.ceil(maxRequired * 1.05);
+
+  return Math.max(1, finalAgents);
+}
+
+// Get current time slot label
+function getCurrentTimeSlot() {
+  const now = new Date();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  // Round to nearest 30 min interval
+  const roundedMinute = minute < 15 ? 0 : minute < 45 ? 30 : 60;
+  let finalHour = hour;
+  let finalMinute = roundedMinute;
+
+  if (finalMinute === 60) {
+    finalHour += 1;
+    finalMinute = 0;
+  }
+  if (finalHour > 23) {
+    return '23:30';
+  }
+
+  return `${finalHour.toString().padStart(2, '0')}:${finalMinute.toString().padStart(2, '0')}`;
+}
+
+export function SimulationPanel({ initialCallVolume, onReset, selectedDate, dailyBreakdownData, onStaffingDataChange, onCurrentStatsChange }: SimulationPanelProps) {
   // Target inputs (user controlled)
   const [targetSLA, setTargetSLA] = useState(90);
   const [targetWaitTime, setTargetWaitTime] = useState(30);
   const [targetOccupancy, setTargetOccupancy] = useState(80);
 
-  // Current time slot and call volume (read-only, derived from data)
-  const [currentTimeSlot, setCurrentTimeSlot] = useState<string>('12:00');
-  const [callsPerHalfHour, setCallsPerHalfHour] = useState(60);
+  // Input field values (for typing)
+  const [slaInput, setSlaInput] = useState('90');
+  const [waitTimeInput, setWaitTimeInput] = useState('30');
+  const [occupancyInput, setOccupancyInput] = useState('80');
 
-  const [isCalculating, setIsCalculating] = useState(false);
+  // Staffing slots from API
+  const [staffingSlots, setStaffingSlots] = useState<StaffingSlot[]>([]);
 
-  // Output: Required agent supply
-  const [requiredAgents, setRequiredAgents] = useState(45);
+  // Check if selected date is today
+  const isToday = useMemo(() => {
+    if (!selectedDate) return true;
+    const today = new Date();
+    return selectedDate.getDate() === today.getDate() &&
+           selectedDate.getMonth() === today.getMonth() &&
+           selectedDate.getFullYear() === today.getFullYear();
+  }, [selectedDate]);
 
-  // Update current time slot based on selected date and time
+  // Current time slot (updates every minute if viewing today)
+  const [currentTimeSlot, setCurrentTimeSlot] = useState(getCurrentTimeSlot());
+
   useEffect(() => {
-    if (dailyBreakdownData && dailyBreakdownData.length > 0) {
-      const now = new Date();
-      const isToday = selectedDate &&
-                      selectedDate.getDate() === now.getDate() &&
-                      selectedDate.getMonth() === now.getMonth() &&
-                      selectedDate.getFullYear() === now.getFullYear();
+    if (isToday) {
+      const updateTime = () => {
+        setCurrentTimeSlot(getCurrentTimeSlot());
+      };
 
-      let timeSlotIndex = 24; // Default to noon (12:00)
+      updateTime();
+      const interval = setInterval(updateTime, 60000);
 
-      if (isToday) {
-        // Use current time to find the slot
-        const hour = now.getHours();
-        const minute = now.getMinutes();
-        timeSlotIndex = hour * 2 + (minute >= 30 ? 1 : 0);
-        // Ensure we don't go beyond the array
-        timeSlotIndex = Math.min(timeSlotIndex, dailyBreakdownData.length - 1);
-      }
-
-      const slot = dailyBreakdownData[timeSlotIndex];
-      setCurrentTimeSlot(slot.time);
-      setCallsPerHalfHour(slot.calls);
+      return () => clearInterval(interval);
     }
-  }, [dailyBreakdownData, selectedDate]);
+  }, [isToday]);
 
-  // Calculate required agents based on targets
+  // OLD USEEFFECT — using seeded-random dailyBreakdownData + local calculateRequiredAgents formula (replaced with API call)
+  // useEffect(() => {
+  //   if (!selectedDate) return;
+  //   if (dailyBreakdownData && dailyBreakdownData.length > 0) {
+  //     if (onStaffingDataChange) {
+  //       const staffingData = dailyBreakdownData.map(slot => ({
+  //         time: slot.time,
+  //         calls: slot.calls,
+  //         agents: calculateRequiredAgents(slot.calls, targetSLA, targetWaitTime, targetOccupancy)
+  //       }));
+  //       onStaffingDataChange(staffingData);
+  //     }
+  //     fetchStaffing(selectedDate, targetSLA, targetWaitTime, targetOccupancy)
+  //       .then(slots => {
+  //         const slot = slots.find(s => s.time === currentTimeSlot) ?? slots[0];
+  //       })
+  //       .catch(console.error);
+  //     if (onCurrentStatsChange) {
+  //       const currentSlot = dailyBreakdownData.find(slot => slot.time === currentTimeSlot);
+  //       const currentCalls = currentSlot ? currentSlot.calls : 0;
+  //       const currentAgents = calculateRequiredAgents(currentCalls, targetSLA, targetWaitTime, targetOccupancy);
+  //       const peak = Math.max(...dailyBreakdownData.map(slot => slot.calls));
+  //       const peakAgents = calculateRequiredAgents(peak, targetSLA, targetWaitTime, targetOccupancy);
+  //       onCurrentStatsChange({
+  //         currentCallVolume: currentCalls,
+  //         currentRequiredAgents: currentAgents,
+  //         peakCallVolume: peak,
+  //         peakRequiredAgents: peakAgents,
+  //         currentTimeSlot,
+  //         isToday
+  //       });
+  //     }
+  //   }
+  // }, [selectedDate, targetSLA, targetWaitTime, targetOccupancy, dailyBreakdownData, currentTimeSlot, isToday, onStaffingDataChange, onCurrentStatsChange]);
+
+  // NEW USEEFFECT — Fetch staffing data from backend API whenever date or slider targets change
   useEffect(() => {
-    setIsCalculating(true);
-    const timer = setTimeout(() => {
-      // Convert calls per half hour to calls per hour for calculation
-      const callsPerHour = callsPerHalfHour * 2;
+    if (!selectedDate) return;
 
-      // Erlang-C inspired reverse calculation
-      // This is a simplified heuristic to estimate required agents
+    fetchStaffing(selectedDate, targetSLA, targetWaitTime, targetOccupancy)
+      .then(slots => {
+        setStaffingSlots(slots);
 
-      // Base agents needed for the workload (assuming 3-min average handle time = 20 calls/hr per agent)
-      const avgHandleTimeHours = 3 / 60; // 3 minutes in hours
-      const baseAgents = (callsPerHour * avgHandleTimeHours);
+        // Map API slots to the shape DailyBreakdownChart expects
+        if (onStaffingDataChange) {
+          onStaffingDataChange(slots.map(s => ({
+            time: s.time,
+            calls: s.predicted_calls,
+            agents: s.agents,
+          })));
+        }
 
-      // Factor for SLA target (higher SLA = more agents needed)
-      const slaFactor = targetSLA / 90; // Normalized to 90% baseline
-      const agentsForSLA = baseAgents * slaFactor * 1.15;
-
-      // Factor for wait time target (lower wait time = more agents needed)
-      const waitTimeFactor = 30 / Math.max(targetWaitTime, 5); // Normalized to 30s baseline
-      const agentsForWaitTime = baseAgents * waitTimeFactor * 1.1;
-
-      // Factor for occupancy target (lower occupancy = more agents needed)
-      const occupancyFactor = 85 / Math.max(targetOccupancy, 50); // Normalized to 85% baseline
-      const agentsForOccupancy = baseAgents * occupancyFactor;
-
-      // Take the maximum to ensure all targets are met
-      const maxRequired = Math.max(agentsForSLA, agentsForWaitTime, agentsForOccupancy);
-
-      // Add a small buffer for variability
-      const finalAgents = Math.ceil(maxRequired * 1.05);
-
-      setRequiredAgents(Math.max(1, finalAgents));
-      setIsCalculating(false);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [targetSLA, targetWaitTime, targetOccupancy, callsPerHalfHour]);
+        // Current time slot stats for the stat cards
+        if (onCurrentStatsChange) {
+          const slot = slots.find(s => s.time === currentTimeSlot) ?? slots[0];
+          const peak = Math.max(...slots.map(s => s.predicted_calls));
+          const peakAgents = Math.max(...slots.map(s => s.agents));
+          onCurrentStatsChange({
+            currentCallVolume: slot?.predicted_calls ?? 0,
+            currentRequiredAgents: slot?.agents ?? 0,
+            peakCallVolume: peak,
+            peakRequiredAgents: peakAgents,
+            currentTimeSlot,
+            isToday,
+          });
+        }
+      })
+      .catch(console.error);
+  }, [selectedDate, targetSLA, targetWaitTime, targetOccupancy, currentTimeSlot, isToday, onStaffingDataChange, onCurrentStatsChange]);
 
   const handleReset = () => {
-    // Reset to default targets
     setTargetSLA(90);
     setTargetWaitTime(30);
     setTargetOccupancy(80);
+    setSlaInput('90');
+    setWaitTimeInput('30');
+    setOccupancyInput('80');
 
-    // Notify parent to reset date/charts
     if (onReset) {
       onReset();
     }
   };
 
-  const getAgentSupplyColor = () => {
-    // Color based on reasonableness of required agents
-    if (requiredAgents > 100) return 'text-red-600 dark:text-red-400';
-    if (requiredAgents > 70) return 'text-yellow-600 dark:text-yellow-400';
-    return 'text-green-600 dark:text-green-400';
+  // Handle input changes for SLA
+  const handleSlaInputChange = (value: string) => {
+    setSlaInput(value);
+    const num = Number(value);
+    if (!isNaN(num) && num >= 70 && num <= 99) {
+      setTargetSLA(num);
+    }
+  };
+
+  const handleSlaInputBlur = () => {
+    const num = Number(slaInput);
+    if (isNaN(num) || num < 70) {
+      setSlaInput('70');
+      setTargetSLA(70);
+    } else if (num > 99) {
+      setSlaInput('99');
+      setTargetSLA(99);
+    }
+  };
+
+  // Handle input changes for Wait Time
+  const handleWaitTimeInputChange = (value: string) => {
+    setWaitTimeInput(value);
+    const num = Number(value);
+    if (!isNaN(num) && num >= 10 && num <= 60) {
+      setTargetWaitTime(num);
+    }
+  };
+
+  const handleWaitTimeInputBlur = () => {
+    const num = Number(waitTimeInput);
+    if (isNaN(num) || num < 10) {
+      setWaitTimeInput('10');
+      setTargetWaitTime(10);
+    } else if (num > 60) {
+      setWaitTimeInput('60');
+      setTargetWaitTime(60);
+    }
+  };
+
+  // Handle input changes for Occupancy
+  const handleOccupancyInputChange = (value: string) => {
+    setOccupancyInput(value);
+    const num = Number(value);
+    if (!isNaN(num) && num >= 60 && num <= 95) {
+      setTargetOccupancy(num);
+    }
+  };
+
+  const handleOccupancyInputBlur = () => {
+    const num = Number(occupancyInput);
+    if (isNaN(num) || num < 60) {
+      setOccupancyInput('60');
+      setTargetOccupancy(60);
+    } else if (num > 95) {
+      setOccupancyInput('95');
+      setTargetOccupancy(95);
+    }
   };
 
   return (
-    <div
-      style={{
-        background: 'rgba(255, 255, 255, 0.10)',
-        boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.10), 0 1px 2px -1px rgba(0, 0, 0, 0.10)'
-      }}
-      className="backdrop-blur-xl p-6 rounded-xl h-full flex flex-col border border-slate-100 dark:border-slate-700 dark:bg-slate-800/50"
-    >
-      <div className="flex items-center space-x-2 mb-6">
-        <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-          <Calculator className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-        </div>
-        <div>
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Performance Simulator</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Calculate required staffing</p>
-        </div>
-      </div>
-
-      <div className="space-y-6 flex-1">
-        {/* Call Volume Display (Read-only) */}
-        <div className="bg-blue-50/50 dark:bg-blue-900/20 backdrop-blur-sm p-4 rounded-lg border border-blue-100 dark:border-blue-800">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center space-x-2">
-              <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Call Volume</span>
-            </div>
-            <span className="text-xs text-slate-500 dark:text-slate-400">{currentTimeSlot}</span>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+            <Calculator className="w-5 h-5 text-purple-600 dark:text-purple-400" />
           </div>
-          <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-            {callsPerHalfHour}
-            <span className="text-sm font-normal text-slate-600 dark:text-slate-400 ml-1">per 30 min</span>
-          </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">From daily demand forecast</p>
-        </div>
-
-        <div className="border-t border-slate-100 dark:border-slate-700"></div>
-
-        {/* Target Inputs */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center space-x-1">
-            <Target className="w-4 h-4" />
-            <span>Target Metrics</span>
-          </h3>
-
-          {/* Target SLA */}
           <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Target SLA</label>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  min="50"
-                  max="99"
-                  value={targetSLA}
-                  onChange={(e) => setTargetSLA(Number(e.target.value))}
-                  className="w-16 px-2 py-1 text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <span className="text-sm font-bold text-blue-600 dark:text-blue-400">%</span>
-              </div>
-            </div>
-            <input
-              type="range"
-              min="50"
-              max="99"
-              value={targetSLA}
-              onChange={(e) => setTargetSLA(Number(e.target.value))}
-              className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600 dark:accent-blue-500"
-            />
-            <div className="flex justify-between text-xs text-slate-400 dark:text-slate-500 mt-1">
-              <span>50%</span>
-              <span>99%</span>
-            </div>
-          </div>
-
-          {/* Target Wait Time */}
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Target Wait Time</label>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  min="5"
-                  max="120"
-                  value={targetWaitTime}
-                  onChange={(e) => setTargetWaitTime(Number(e.target.value))}
-                  className="w-16 px-2 py-1 text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <span className="text-sm font-bold text-blue-600 dark:text-blue-400">s</span>
-              </div>
-            </div>
-            <input
-              type="range"
-              min="5"
-              max="120"
-              value={targetWaitTime}
-              onChange={(e) => setTargetWaitTime(Number(e.target.value))}
-              className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600 dark:accent-blue-500"
-            />
-            <div className="flex justify-between text-xs text-slate-400 dark:text-slate-500 mt-1">
-              <span>5s</span>
-              <span>120s</span>
-            </div>
-          </div>
-
-          {/* Target Agent Occupancy */}
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Target Occupancy</label>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="number"
-                  min="50"
-                  max="95"
-                  value={targetOccupancy}
-                  onChange={(e) => setTargetOccupancy(Number(e.target.value))}
-                  className="w-16 px-2 py-1 text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <span className="text-sm font-bold text-blue-600 dark:text-blue-400">%</span>
-              </div>
-            </div>
-            <input
-              type="range"
-              min="50"
-              max="95"
-              value={targetOccupancy}
-              onChange={(e) => setTargetOccupancy(Number(e.target.value))}
-              className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600 dark:accent-blue-500"
-            />
-            <div className="flex justify-between text-xs text-slate-400 dark:text-slate-500 mt-1">
-              <span>50%</span>
-              <span>95%</span>
-            </div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white">Target Metrics</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Adjust targets to calculate staffing needs</p>
           </div>
         </div>
-
-        <div className="border-t border-slate-100 dark:border-slate-700"></div>
-
-        {/* Output: Required Agent Supply */}
-        <div className="bg-slate-50/50 dark:bg-slate-900/30 backdrop-blur-sm p-5 rounded-lg border-2 border-slate-200 dark:border-slate-700">
-          <div className="flex items-center space-x-2 mb-3">
-            <Users className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">Required Agent Supply</span>
-          </div>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={requiredAgents}
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className={`text-4xl font-bold ${getAgentSupplyColor()}`}
-            >
-              {requiredAgents}
-              <span className="text-lg font-normal text-slate-600 dark:text-slate-400 ml-2">agents</span>
-            </motion.div>
-          </AnimatePresence>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-            Minimum staffing to meet all targets
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-700">
         <button
           onClick={handleReset}
-          className="w-full py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-blue-600 dark:text-blue-400 font-medium rounded-lg hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors flex items-center justify-center space-x-2"
+          className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-all"
         >
-          <RefreshCw className="w-4 h-4" />
-          <span>Reset to Current</span>
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span>Reset</span>
         </button>
+      </div>
+
+      {/* Target Metrics - Horizontal */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Target SLA */}
+        <div className="bg-slate-50/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200/50 dark:border-slate-700/50">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-2">
+              <Target className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Target SLA</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <input
+                type="number"
+                min="70"
+                max="99"
+                value={slaInput}
+                onChange={(e) => handleSlaInputChange(e.target.value)}
+                onBlur={handleSlaInputBlur}
+                className="w-12 text-right text-lg font-bold text-blue-600 dark:text-blue-400 bg-transparent border-b border-blue-600/30 dark:border-blue-400/30 focus:outline-none focus:border-blue-600 dark:focus:border-blue-400"
+              />
+              <span className="text-lg font-bold text-blue-600 dark:text-blue-400">%</span>
+            </div>
+          </div>
+          <input
+            type="range"
+            min="70"
+            max="99"
+            value={targetSLA}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              setTargetSLA(val);
+              setSlaInput(val.toString());
+            }}
+            className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+          />
+          <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <span>70%</span>
+            <span>99%</span>
+          </div>
+        </div>
+
+        {/* Target Wait Time */}
+        <div className="bg-slate-50/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200/50 dark:border-slate-700/50">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-2">
+              <Clock className="w-4 h-4 text-green-600 dark:text-green-400" />
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Wait Time</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <input
+                type="number"
+                min="10"
+                max="60"
+                value={waitTimeInput}
+                onChange={(e) => handleWaitTimeInputChange(e.target.value)}
+                onBlur={handleWaitTimeInputBlur}
+                className="w-12 text-right text-lg font-bold text-green-600 dark:text-green-400 bg-transparent border-b border-green-600/30 dark:border-green-400/30 focus:outline-none focus:border-green-600 dark:focus:border-green-400"
+              />
+              <span className="text-lg font-bold text-green-600 dark:text-green-400">s</span>
+            </div>
+          </div>
+          <input
+            type="range"
+            min="10"
+            max="60"
+            value={targetWaitTime}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              setTargetWaitTime(val);
+              setWaitTimeInput(val.toString());
+            }}
+            className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-green-600"
+          />
+          <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <span>10s</span>
+            <span>60s</span>
+          </div>
+        </div>
+
+        {/* Target Occupancy */}
+        <div className="bg-slate-50/50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200/50 dark:border-slate-700/50">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-2">
+              <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Occupancy</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <input
+                type="number"
+                min="60"
+                max="95"
+                value={occupancyInput}
+                onChange={(e) => handleOccupancyInputChange(e.target.value)}
+                onBlur={handleOccupancyInputBlur}
+                className="w-12 text-right text-lg font-bold text-purple-600 dark:text-purple-400 bg-transparent border-b border-purple-600/30 dark:border-purple-400/30 focus:outline-none focus:border-purple-600 dark:focus:border-purple-400"
+              />
+              <span className="text-lg font-bold text-purple-600 dark:text-purple-400">%</span>
+            </div>
+          </div>
+          <input
+            type="range"
+            min="60"
+            max="95"
+            value={targetOccupancy}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              setTargetOccupancy(val);
+              setOccupancyInput(val.toString());
+            }}
+            className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-600"
+          />
+          <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <span>60%</span>
+            <span>95%</span>
+          </div>
+        </div>
       </div>
     </div>
   );
