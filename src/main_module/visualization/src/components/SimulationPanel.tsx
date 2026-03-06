@@ -140,8 +140,12 @@ export function SimulationPanel({ initialCallVolume, onReset, selectedDate, dail
   useEffect(() => {
     if (!selectedDate) return;
 
+    let isMounted = true;
+
     fetchStaffing(selectedDate, targetSLA, targetWaitTime, targetOccupancy)
       .then(slots => {
+        if (!isMounted) return;
+
         setStaffingSlots(slots);
 
         // Map API slots to the shape DailyBreakdownChart expects
@@ -168,8 +172,15 @@ export function SimulationPanel({ initialCallVolume, onReset, selectedDate, dail
           });
         }
       })
-      .catch(console.error);
-  }, [selectedDate, targetSLA, targetWaitTime, targetOccupancy, currentTimeSlot, isToday, onStaffingDataChange, onCurrentStatsChange]);
+      .catch(error => {
+        console.error("Failed to fetch staffing data:", error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, targetSLA, targetWaitTime, targetOccupancy, currentTimeSlot, isToday]);
 
   const handleReset = () => {
     setTargetSLA(90);

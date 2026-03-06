@@ -218,7 +218,12 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
         </div>
       )}
 
-      {/* Chart */}
+      {/* Chart — guard prevents Recharts NaN errors when data hasn't loaded yet */}
+      {(!staffingData || staffingData.length === 0) ? (
+        <div className="w-full flex items-center justify-center text-slate-400 dark:text-slate-500 text-sm" style={{ height: '350px' }}>
+          Loading forecast data...
+        </div>
+      ) : (
       <div className="w-full" style={{ height: '350px' }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
@@ -317,6 +322,7 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+      )}
     </div>
   );
 }
