@@ -63,6 +63,22 @@ Poetry 1.8+ is required for local development. If Poetry is not already installe
 └── README.md             # You are here
 ```
 
+## Documentation (optional)
+
+The `docs/` directory contains the GitHub Pages source. Docs tooling runs in a
+separate compose stack and is **not required** for normal dashboard or API
+development.
+
+```bash
+make docs-up      # start live Jekyll server at http://localhost:4000
+make docs-build   # one-off static build (writes to docs/_site/)
+make docs-check   # run Lychee link checker against the built site
+make docs-down    # stop the docs containers
+```
+
+These commands use `docker-compose.docs.yml` and do not touch the backend or
+frontend containers.
+
 ## Tooling Highlights
 
 - **Poetry** – dependency and environment management (`make install`).
@@ -73,4 +89,3 @@ Poetry 1.8+ is required for local development. If Poetry is not already installe
 - **Loguru** – opinionated logging with contextual helpers.
 - **Pre-commit** – consistent formatting & linting before commits.
 - **GitHub Pages ready docs** – `docs/` contains the scaffolding for project documentation.
-- **Streamlit** - Python framework for interactive data app hosting.
