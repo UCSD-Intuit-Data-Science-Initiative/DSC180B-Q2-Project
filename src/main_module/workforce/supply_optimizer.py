@@ -87,17 +87,21 @@ class SupplyOptimizer:
     def optimize(
         self,
         demand: int,
-        constraints: OptimizationConstraints
+        constraints: OptimizationConstraints,
+        min_agents: int = 1,
     ) -> OptimalSupply:
         """Find minimum staffing meeting all constraints.
 
-        Searches staffing levels from 1 to max_supply, calling the emulator
-        for each level. Returns the first (minimum) headcount that satisfies
-        all constraints. Monotonicity guarantees this is optimal.
+        Searches staffing levels from min_agents to max_supply, calling the
+        emulator for each level. Returns the first (minimum) headcount that
+        satisfies all constraints. Monotonicity guarantees this is optimal.
 
         Args:
             demand: Expected number of arriving calls (integer).
             constraints: OptimizationConstraints with SLA/wait/occupancy targets.
+            min_agents: Start the search here instead of 1. Use this to skip
+                agent counts that can never satisfy the occupancy constraint
+                (i.e., where traffic_erlangs / max_occupancy > n).
 
         Returns:
             OptimalSupply with minimum headcount and predicted metrics.
@@ -108,8 +112,8 @@ class SupplyOptimizer:
             metrics = self.emulator.simulate_interval(0, 0)
             return OptimalSupply(headcount=0, predicted_metrics=metrics, is_feasible=True)
 
-        # Linear search: try supply = 1, 2, 3, ...
-        for supply in range(1, self.max_supply + 1):
+        # Linear search starting from min_agents
+        for supply in range(max(1, min_agents), self.max_supply + 1):
             metrics = self.emulator.simulate_interval(supply, demand)
 
             if self._meets_constraints(metrics, constraints):
