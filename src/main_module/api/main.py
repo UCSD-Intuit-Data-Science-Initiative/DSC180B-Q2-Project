@@ -143,26 +143,17 @@ def startup():
         daily_std_lookup = daily_totals.groupby("dow_day")["call_volume"].std().to_dict()
         print("Daily std dev lookup built for weekly chart error bars.")
 
-        # Wait time and SLA lookups from raw call records
-        call_df["wait_secs"] = (call_df["start"] - call_df["arrival"]).dt.total_seconds().clip(lower=0)
-        call_df["sla_met"]   = (call_df["wait_secs"] <= 60).astype(float) * 100
-        call_df["dow"]       = call_df["arrival"].dt.dayofweek
-        call_df["slot"]      = call_df["arrival"].dt.hour * 2 + call_df["arrival"].dt.minute // 30
-        wait_time_lookup = call_df.groupby(["dow", "slot"])["wait_secs"].mean().to_dict()
-        sla_lookup       = call_df.groupby(["dow", "slot"])["sla_met"].mean().to_dict()
-        print("Wait time and SLA lookups built from dataset_1.")
-
-        # --- dataset_4: occupancy + agent count lookups ---
-        # Only load the four columns we need — avoids reading the full 770 MB file
-        occ_df = pd.read_parquet(str(DATASET_4_PATH), columns=["interval_start_utc", "occupancy_pct_normalized", "expert_id", "date"])
-        occ_df["dow"]  = pd.to_datetime(occ_df["interval_start_utc"]).dt.dayofweek
-        occ_df["slot"] = (pd.to_datetime(occ_df["interval_start_utc"]).dt.hour * 2
-                          + pd.to_datetime(occ_df["interval_start_utc"]).dt.minute // 30)
-        occupancy_lookup = occ_df.groupby(["dow", "slot"])["occupancy_pct_normalized"].mean().to_dict()
-        n_agent_dates    = occ_df.groupby(["dow", "slot"])["date"].nunique()
-        n_agents         = occ_df.groupby(["dow", "slot"])["expert_id"].nunique()
-        agents_lookup    = (n_agents / n_agent_dates).to_dict()
-        print("Occupancy and agent count lookups built from dataset_4.")
+        # --- Initialize SupplyOptimizer (Erlang-A) ---
+        from main_module.workforce.call_center_emulator import CallCenterEmulator, EmulatorConfig
+        from main_module.workforce.supply_optimizer import SupplyOptimizer
+        emulator = CallCenterEmulator(EmulatorConfig(
+            avg_handle_time=600,             # 10-min average call handle time
+            sla_threshold_seconds=60,        # SLA = answered within 60 seconds
+            avg_patience_time=180,           # callers hang up after ~3 min wait
+            interval_duration_seconds=1800,  # 30-min slot
+        ))
+        optimizer = SupplyOptimizer(emulator, max_supply=5000)
+        print("SupplyOptimizer (Erlang-A) initialized.")
 
         model_ready = True
         print("=" * 60)
@@ -302,19 +293,25 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
       max_occupancy: max agent occupancy as a fraction  (e.g. 0.85 = 85%)
                      comes from the Max Occupancy slider in React
     """
-    # --- MVP: XGBoost predictions + historical lookup tables ---
-    # Uses xgb_model for call volume, and precomputed lookups for all other metrics.
+    from main_module.workforce.supply_optimizer import OptimizationConstraints
+
+    constraints = OptimizationConstraints(
+        min_sla=min_sla,
+        max_wait_time=max_wait_time,
+        max_occupancy=max_occupancy,
+    )
+
     ts  = pd.Timestamp(date_str)
     dow = ts.dayofweek
     tax_day     = pd.Timestamp(f"{ts.year}-04-15")
     days_to_tax = (tax_day - ts.normalize()).days
 
+    aht      = optimizer.emulator.config.avg_handle_time
+    interval = optimizer.emulator.config.interval_duration_seconds
+
     results = []
     for hour in range(5, 17):
         for minute in (0, 30):
-            slot = hour * 2 + minute // 30
-            key  = (dow, slot)
-
             # Build one-row feature vector for XGBoost (same features as training)
             feat_row = pd.DataFrame([{
                 "hour_sin":      np.sin(2 * np.pi * hour / 24),
@@ -325,17 +322,25 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
                 "days_to_tax":   days_to_tax,
                 "is_tax_season": int(ts.month <= 4 and days_to_tax >= 0),
             }])
-            predicted_calls = max(0, round(xgb_model.predict(feat_row[xgb_features])[0]))
+            predicted_calls = max(0, int(round(xgb_model.predict(feat_row[xgb_features])[0])))
+
+            # Skip low-agent counts that can never satisfy the occupancy constraint.
+            # traffic_erlangs = offered load; need agents > traffic / max_occupancy.
+            traffic_erlangs  = predicted_calls * aht / interval
+            min_agents_floor = max(1, int(np.ceil(traffic_erlangs / max_occupancy)) + 1)
+
+            supply_result = optimizer.optimize(predicted_calls, constraints, min_agents=min_agents_floor)
+            metrics = supply_result.predicted_metrics
 
             results.append({
                 "time":             f"{hour:02d}:{minute:02d}",
                 "predicted_calls":  predicted_calls,
-                "agents":           round(agents_lookup.get(key, 5)),
-                "avg_wait_time":    round(wait_time_lookup.get(key, 30.0), 1),
-                "sla_compliance":   round(sla_lookup.get(key, 90.0), 1),
-                "utilization_rate": round(occupancy_lookup.get(key, 80.0), 1),
-                "abandonment_rate": 2.0,
-                "is_feasible":      True,
+                "agents":           supply_result.headcount,
+                "avg_wait_time":    round(metrics.avg_wait_time, 1),
+                "sla_compliance":   round(metrics.sla_compliance, 1),
+                "utilization_rate": round(metrics.utilization_rate, 1),
+                "abandonment_rate": round(metrics.abandonment_rate, 1),
+                "is_feasible":      supply_result.is_feasible,
             })
 
     return results
