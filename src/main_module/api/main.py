@@ -228,8 +228,7 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
 
     # Lag feature helpers
     lag_intervals = forecast_weeks * 7 * 48
-    history_mean = float(history.mean())
-    history_max = float(history.max())
+    rolling_window = forecast_weeks * 7 * 48
 
     interval = optimizer.emulator.config.interval_duration_seconds
     default_aht = optimizer.emulator.config.avg_handle_time
@@ -240,14 +239,21 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
             slot_str = f"{hour:02d}:{minute:02d}"
             slot_ts = pd.Timestamp(f"{date_str} {slot_str}")
 
-            # Compute lag features from historical call volume
+            # Compute lag features (matches pipeline_validation.ipynb exactly)
             lag_ts = slot_ts - pd.Timedelta(weeks=forecast_weeks)
-            lag_value = history.get(lag_ts, history_mean)
 
-            window_start = lag_ts - pd.Timedelta(weeks=forecast_weeks)
+            # Lag: exact match first, then nearest historical slot
+            if lag_ts in history.index:
+                lag_value = float(history.loc[lag_ts])
+            else:
+                idx = history.index.get_indexer([lag_ts], method="nearest")
+                lag_value = float(history.iloc[idx[0]])
+
+            # Trend & max: rolling window ending at lag point
+            window_start = lag_ts - pd.Timedelta(minutes=30 * rolling_window)
             window = history.loc[window_start:lag_ts]
-            trend_value = float(window.mean()) if len(window) > 0 else history_mean
-            max_value = float(window.max()) if len(window) > 0 else history_max
+            trend_value = float(window.mean()) if len(window) > 0 else 0.0
+            max_value = float(window.max()) if len(window) > 0 else 0.0
 
             # Build the 15-feature vector matching training
             lag_feat = f"lag_{forecast_weeks}weeks"
