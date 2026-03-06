@@ -41,11 +41,11 @@ function calculateRequiredAgents(callsPerHalfHour: number, targetSLA: number, ta
   return Math.max(1, finalAgents);
 }
 
-// Get current time slot label
+// Get current time slot label in UTC (API slots are labeled in UTC)
 function getCurrentTimeSlot() {
   const now = new Date();
-  const hour = now.getHours();
-  const minute = now.getMinutes();
+  const hour = now.getUTCHours();
+  const minute = now.getUTCMinutes();
   // Round to nearest 30 min interval
   const roundedMinute = minute < 15 ? 0 : minute < 45 ? 30 : 60;
   let finalHour = hour;
@@ -159,15 +159,19 @@ export function SimulationPanel({ initialCallVolume, onReset, selectedDate, dail
 
         // Current time slot stats for the stat cards
         if (onCurrentStatsChange) {
-          const slot = slots.find(s => s.time === currentTimeSlot) ?? slots[0];
           const peak = Math.max(...slots.map(s => s.predicted_calls));
           const peakAgents = Math.max(...slots.map(s => s.agents));
+          // For today: show the current UTC time slot (clamp to last slot if outside business hours).
+          // For past/future: show the peak slot.
+          const slot = isToday
+            ? (slots.find(s => s.time === currentTimeSlot) ?? slots[slots.length - 1])
+            : slots.find(s => s.predicted_calls === peak) ?? slots[0];
           onCurrentStatsChange({
             currentCallVolume: slot?.predicted_calls ?? 0,
             currentRequiredAgents: slot?.agents ?? 0,
             peakCallVolume: peak,
             peakRequiredAgents: peakAgents,
-            currentTimeSlot,
+            currentTimeSlot: isToday ? currentTimeSlot : (slot?.time ?? ''),
             isToday,
           });
         }
