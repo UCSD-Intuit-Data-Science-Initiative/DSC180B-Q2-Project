@@ -20,7 +20,7 @@ EXPOSE 8000
 
 # --reload  = restarts the server automatically when you edit a .py file (hot reload)
 # --host 0.0.0.0 = required for Docker so the port is reachable from your laptop
-CMD ["python", "-m", "uvicorn", "main_module.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["python", "-m", "uvicorn", "main_module.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-exclude", "data/*"]
 
 
 # ---- Production stage ----

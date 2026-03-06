@@ -17,6 +17,7 @@ How to run locally (no Docker):
   Interactive API docs: http://localhost:8000/docs
 """
 
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +33,9 @@ DATA_ROOT      = Path(__file__).resolve().parent.parent.parent.parent
 DATA_PATH      = DATA_ROOT / "data" / "interim" / "mock_intuit_2year_data.csv"
 DATASET_1_PATH = DATA_ROOT / "data" / "parquet" / "dataset_1_call_related.parquet"
 DATASET_4_PATH = DATA_ROOT / "data" / "parquet" / "dataset_4_expert_state_interval.parquet"
+STARTUP_CACHE_DIR = DATA_ROOT / "data" / "interim" / "cache"
+STARTUP_CACHE_PATH = STARTUP_CACHE_DIR / "api_startup_cache.pkl"
+STARTUP_CACHE_VERSION = "api-startup-cache-v3"
 
 # ---------------------------------------------------------------------------
 # Global variables
@@ -53,6 +57,64 @@ sla_lookup       = {}    # (day_of_week, slot) -> avg SLA %
 occupancy_lookup = {}    # (day_of_week, slot) -> avg occupancy %
 agents_lookup    = {}    # (day_of_week, slot) -> avg agent count
 daily_std_lookup = {}    # day_of_week -> historical std dev of daily call volume (for error bars)
+aht_lookup       = {}    # (day_of_week, "HH:MM") -> mean handle time in seconds (from dataset_1)
+
+
+# ---------------------------------------------------------------------------
+# Startup cache helpers
+# ---------------------------------------------------------------------------
+
+def _source_signature() -> dict:
+    """Return a lightweight fingerprint for cache invalidation."""
+    dataset_1_stat = DATASET_1_PATH.stat()
+    return {
+        "version": STARTUP_CACHE_VERSION,
+        "dataset_1_mtime_ns": dataset_1_stat.st_mtime_ns,
+        "dataset_1_size": dataset_1_stat.st_size,
+    }
+
+
+def _load_startup_cache(expected_signature: dict):
+    """Load startup artifacts from disk if the cache is fresh."""
+    if not STARTUP_CACHE_PATH.exists():
+        return None
+
+    try:
+        with STARTUP_CACHE_PATH.open("rb") as fh:
+            payload = pickle.load(fh)
+    except Exception as exc:
+        print(f"Startup cache unreadable, rebuilding artifacts: {exc}")
+        return None
+
+    if payload.get("signature") != expected_signature:
+        print("Startup cache stale, rebuilding artifacts.")
+        return None
+
+    return payload
+
+
+def _save_startup_cache(payload: dict) -> None:
+    """Persist startup artifacts atomically so reloads can reuse them."""
+    STARTUP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    temp_path = STARTUP_CACHE_PATH.with_suffix(".tmp")
+    with temp_path.open("wb") as fh:
+        pickle.dump(payload, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    temp_path.replace(STARTUP_CACHE_PATH)
+
+
+def _build_emulator_and_optimizer():
+    """Initialize the queueing emulator and staffing optimizer."""
+    from main_module.workforce.call_center_emulator import CallCenterEmulator, EmulatorConfig
+    from main_module.workforce.supply_optimizer import SupplyOptimizer
+
+    emulator = CallCenterEmulator(EmulatorConfig(
+        avg_handle_time=600,             # 10-min average call handle time
+        sla_threshold_seconds=60,        # SLA = answered within 60 seconds
+        avg_patience_time=180,           # callers hang up after ~3 min wait
+        interval_duration_seconds=1800,  # 30-min slot
+    ))
+    optimizer = SupplyOptimizer(emulator, max_supply=5000)
+    return emulator, optimizer
 
 
 # ---------------------------------------------------------------------------
@@ -90,22 +152,42 @@ def startup():
     the rest of the code would not be able to see the trained model.
     """
     global forecaster, emulator, optimizer, model_ready
-    global xgb_model, xgb_features, wait_time_lookup, sla_lookup, occupancy_lookup, agents_lookup, daily_std_lookup
+    global xgb_model, xgb_features, wait_time_lookup, sla_lookup, occupancy_lookup, agents_lookup, daily_std_lookup, aht_lookup
 
     # --- MVP: XGBoost + parquet lookup tables ---
     # Trains XGBoost on dataset_1 call volume; builds lookup tables from dataset_1 and dataset_4.
     # Mirrors feature engineering from scripts/forecasting_dynamic_weeks.py (no lag features).
     print("=" * 60)
-    print("Startup: loading parquet data and training XGBoost...")
-    print("(This takes ~30 seconds — only happens once at startup)")
+    print("Startup: checking cache, loading parquet data, and training XGBoost if needed...")
+    print("(This takes time on a cold start, then reloads can reuse cached artifacts)")
     print("=" * 60)
 
     try:
         from xgboost import XGBRegressor
+        cache_signature = _source_signature()
+        cached_payload = _load_startup_cache(cache_signature)
+
+        if cached_payload is not None:
+            xgb_model = cached_payload["xgb_model"]
+            xgb_features = cached_payload["xgb_features"]
+            daily_std_lookup = cached_payload["daily_std_lookup"]
+            aht_lookup = cached_payload["aht_lookup"]
+            emulator, optimizer = _build_emulator_and_optimizer()
+
+            model_ready = True
+            print(f"Startup cache hit: loaded artifacts from {STARTUP_CACHE_PATH}")
+            print("=" * 60)
+            print("Startup complete! API is ready to serve cached ML predictions.")
+            print("=" * 60)
+            return
 
         # --- dataset_1: train XGBoost + compute wait time / SLA lookups ---
-        # Only load the two timestamp columns we need — avoids reading the full 557 MB file
-        call_df = pd.read_parquet(str(DATASET_1_PATH), columns=["arrival_time_utc", "start_time_utc"])
+        # Load timestamp + AHT-related columns; we reuse this DataFrame for both
+        # XGBoost training and the (dow, slot) -> mean AHT lookup.
+        call_df = pd.read_parquet(
+            str(DATASET_1_PATH),
+            columns=["arrival_time_utc", "start_time_utc", "end_time_utc", "answered_flag"],
+        )
         call_df["arrival"] = pd.to_datetime(call_df["arrival_time_utc"])
         call_df["start"]   = pd.to_datetime(call_df["start_time_utc"])
 
@@ -143,16 +225,33 @@ def startup():
         daily_std_lookup = daily_totals.groupby("dow_day")["call_volume"].std().to_dict()
         print("Daily std dev lookup built for weekly chart error bars.")
 
+        # AHT lookup — disabled to speed up boot time for frontend development.
+        # Re-enable the block below when slot-specific AHT is needed in production.
+        # answered = call_df[call_df["answered_flag"] == True].copy()
+        # answered["end"]         = pd.to_datetime(answered["end_time_utc"])
+        # answered["handle_time"] = (answered["end"] - answered["start"]).dt.total_seconds()
+        # answered = answered[(answered["handle_time"] > 0) & (answered["handle_time"] < 14400)]
+        # answered["slot"]        = answered["arrival"].dt.floor("30min")
+        # answered["dow"]         = answered["slot"].dt.dayofweek
+        # answered["slot_str"]    = answered["slot"].dt.strftime("%H:%M")
+        # aht_lookup = (
+        #     answered.groupby(["dow", "slot_str"])["handle_time"].mean().to_dict()
+        # )
+        # print(f"AHT lookup built: {len(aht_lookup)} (day_of_week, slot) entries.")
+        aht_lookup = {}
+        print("Skipping dynamic AHT to speed up boot time. Falling back to 600s.")
+
+        _save_startup_cache({
+            "signature": cache_signature,
+            "xgb_model": xgb_model,
+            "xgb_features": xgb_features,
+            "daily_std_lookup": daily_std_lookup,
+            "aht_lookup": aht_lookup,
+        })
+        print(f"Startup cache saved to {STARTUP_CACHE_PATH}")
+
         # --- Initialize SupplyOptimizer (Erlang-A) ---
-        from main_module.workforce.call_center_emulator import CallCenterEmulator, EmulatorConfig
-        from main_module.workforce.supply_optimizer import SupplyOptimizer
-        emulator = CallCenterEmulator(EmulatorConfig(
-            avg_handle_time=600,             # 10-min average call handle time
-            sla_threshold_seconds=60,        # SLA = answered within 60 seconds
-            avg_patience_time=180,           # callers hang up after ~3 min wait
-            interval_duration_seconds=1800,  # 30-min slot
-        ))
-        optimizer = SupplyOptimizer(emulator, max_supply=5000)
+        emulator, optimizer = _build_emulator_and_optimizer()
         print("SupplyOptimizer (Erlang-A) initialized.")
 
         model_ready = True
@@ -306,12 +405,14 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
     tax_day     = pd.Timestamp(f"{ts.year}-04-15")
     days_to_tax = (tax_day - ts.normalize()).days
 
-    aht      = optimizer.emulator.config.avg_handle_time
-    interval = optimizer.emulator.config.interval_duration_seconds
+    interval        = optimizer.emulator.config.interval_duration_seconds
+    default_aht     = optimizer.emulator.config.avg_handle_time
 
     results = []
     for hour in range(5, 17):
         for minute in (0, 30):
+            slot_str = f"{hour:02d}:{minute:02d}"
+
             # Build one-row feature vector for XGBoost (same features as training)
             feat_row = pd.DataFrame([{
                 "hour_sin":      np.sin(2 * np.pi * hour / 24),
@@ -324,16 +425,24 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
             }])
             predicted_calls = max(0, int(round(xgb_model.predict(feat_row[xgb_features])[0])))
 
+            # Slot-specific AHT from the (day_of_week, slot) -> mean AHT lookup.
+            # Falls back to the emulator's configured default if the slot has no history.
+            slot_aht = aht_lookup.get((dow, slot_str), default_aht)
+
             # Skip low-agent counts that can never satisfy the occupancy constraint.
             # traffic_erlangs = offered load; need agents > traffic / max_occupancy.
-            traffic_erlangs  = predicted_calls * aht / interval
+            traffic_erlangs  = predicted_calls * slot_aht / interval
             min_agents_floor = max(1, int(np.ceil(traffic_erlangs / max_occupancy)) + 1)
 
-            supply_result = optimizer.optimize(predicted_calls, constraints, min_agents=min_agents_floor)
+            supply_result = optimizer.optimize(
+                predicted_calls, constraints,
+                min_agents=min_agents_floor,
+                avg_handle_time=slot_aht,
+            )
             metrics = supply_result.predicted_metrics
 
             results.append({
-                "time":             f"{hour:02d}:{minute:02d}",
+                "time":             slot_str,
                 "predicted_calls":  predicted_calls,
                 "agents":           supply_result.headcount,
                 "avg_wait_time":    round(metrics.avg_wait_time, 1),
@@ -341,6 +450,7 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
                 "utilization_rate": round(metrics.utilization_rate, 1),
                 "abandonment_rate": round(metrics.abandonment_rate, 1),
                 "is_feasible":      supply_result.is_feasible,
+                "aht_seconds_used": float(round(slot_aht, 1)),
             })
 
     return results

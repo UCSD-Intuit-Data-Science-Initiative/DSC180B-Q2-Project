@@ -32,6 +32,19 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
   // Current time state for the reference line
   const [currentTimeLabel, setCurrentTimeLabel] = useState<string | null>(null);
 
+  // Clicked slot — overrides the stat cards when user clicks a point on the chart
+  const [clickedSlot, setClickedSlot] = useState<{ time: string; calls: number; agents: number } | null>(null);
+
+  // Reset clicked slot when date changes
+  useEffect(() => { setClickedSlot(null); }, [staffingData]);
+
+  const handleChartClick = (data: any) => {
+    if (data && data.activePayload && data.activePayload.length > 0) {
+      const point = data.activePayload[0].payload;
+      setClickedSlot({ time: point.time, calls: point.calls, agents: point.agents });
+    }
+  };
+
   // Unused — chart renders from staffingData prop, not local fetch
   // const [data, setData] = useState<{ time: string; calls: number }[]>([]);
 
@@ -39,8 +52,9 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
     if (isTodayMemo) {
         const updateTime = () => {
             const now = new Date();
-            const hour = now.getHours();
-            const minute = now.getMinutes();
+            // Use UTC hours so the reference line aligns with API slot labels (which are UTC)
+            const hour = now.getUTCHours();
+            const minute = now.getUTCMinutes();
             // Round to nearest 30 min interval
             const roundedMinute = minute < 15 ? 0 : minute < 45 ? 30 : 60;
             let finalHour = hour;
@@ -163,7 +177,7 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
         </div>
       </div>
 
-      {/* Current Stats Display */}
+      {/* Current Stats Display — clicking the chart overrides with that slot's data */}
       {currentCallVolume !== undefined && currentRequiredAgents !== undefined && (
         <div className="flex justify-center mb-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ width: 'calc(100% - 130px)' }}>
@@ -173,21 +187,21 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
                 <div className="flex items-center space-x-2">
                   <Phone className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                   <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    {isToday ? 'Current Call Volume' : 'Call Volume'}
+                    {clickedSlot ? 'Call Volume' : isToday ? 'Current Call Volume' : 'Peak Call Volume'}
                   </span>
                 </div>
-                {isToday && currentTimeSlot && (
-                  <span className="text-xs text-slate-500 dark:text-slate-400">{currentTimeSlot}</span>
-                )}
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  {clickedSlot ? clickedSlot.time : currentTimeSlot}
+                </span>
               </div>
               <div className="flex items-baseline space-x-1">
                 <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">
-                  {currentCallVolume}
+                  {clickedSlot ? clickedSlot.calls : currentCallVolume}
                 </p>
                 <span className="text-sm text-slate-500 dark:text-slate-400">calls/30min</span>
               </div>
               {peakCallVolume !== undefined && (
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Daily maximum: {peakCallVolume}</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Daily peak: {peakCallVolume}</p>
               )}
             </div>
 
@@ -197,33 +211,40 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
                 <div className="flex items-center space-x-2">
                   <Users className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                   <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    {isToday ? 'Required Agents' : 'Required Agents'}
+                    {clickedSlot ? 'Required Agents' : isToday ? 'Required Agents' : 'Peak Required Agents'}
                   </span>
                 </div>
-                {isToday && currentTimeSlot && (
-                  <span className="text-xs text-slate-500 dark:text-slate-400">{currentTimeSlot}</span>
-                )}
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  {clickedSlot ? clickedSlot.time : currentTimeSlot}
+                </span>
               </div>
               <div className="flex items-baseline space-x-1">
                 <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">
-                  {currentRequiredAgents}
+                  {clickedSlot ? clickedSlot.agents : currentRequiredAgents}
                 </p>
                 <span className="text-sm text-slate-500 dark:text-slate-400">agents</span>
               </div>
               {peakRequiredAgents !== undefined && (
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Daily maximum: {peakRequiredAgents}</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Daily peak: {peakRequiredAgents}</p>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Chart */}
+      {/* Chart — guard prevents Recharts NaN errors when data hasn't loaded yet */}
+      {(!staffingData || staffingData.length === 0) ? (
+        <div className="w-full flex items-center justify-center text-slate-400 dark:text-slate-500 text-sm" style={{ height: '350px' }}>
+          Loading forecast data...
+        </div>
+      ) : (
       <div className="w-full" style={{ height: '350px' }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={staffingData}
             margin={{ top: 20, right: 30, left: 10, bottom: 0 }}
+            onClick={handleChartClick}
+            style={{ cursor: 'pointer' }}
           >
             <defs>
               <linearGradient id="colorCalls" x1="0" y1="0" x2="0" y2="1">
@@ -317,6 +338,7 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,59 @@
+# Docs-only compose stack — for building and serving GitHub Pages documentation.
+# Not part of the main application runtime.
+#
+# Usage:
+#   make docs-up       # start live Jekyll server
+#   make docs-build    # one-off static build
+#   make docs-check    # one-off link check with Lychee
+#
+# Or directly:
+#   docker compose -f docker-compose.docs.yml up jekyll
+#   docker compose -f docker-compose.docs.yml run --rm jekyll-build
+#   docker compose -f docker-compose.docs.yml run --rm lychee
+
+services:
+  jekyll:
+    image: ruby:3.1
+    working_dir: /usr/src/docs
+    volumes:
+      - ./docs:/usr/src/docs
+      - jekyll_gems:/usr/local/bundle
+    environment:
+      - JEKYLL_ENV=development
+      - BUNDLE_PATH=/usr/local/bundle
+    ports:
+      - "4000:4000"
+      - "35729:35729"
+    command: >
+      bash -c "
+        echo 'Bundler check...' &&
+        bundle check || bundle install &&
+        echo 'Starting Jekyll server...' &&
+        bundle exec jekyll serve --source . --destination ./_site --host 0.0.0.0 --port 4000 --watch --force_polling --livereload
+      "
+
+  jekyll-build:
+    image: ruby:3.1
+    working_dir: /usr/src/docs
+    volumes:
+      - ./docs:/usr/src/docs
+      - jekyll_gems:/usr/local/bundle
+    environment:
+      - JEKYLL_ENV=development
+      - BUNDLE_PATH=/usr/local/bundle
+    command: >
+      bash -c "
+        echo 'Bundler check...' &&
+        bundle check || bundle install &&
+        echo 'Building Jekyll site...' &&
+        bundle exec jekyll build --source . --destination ./_site
+      "
+
+  lychee:
+    image: lycheeverse/lychee:latest
+    volumes:
+      - ./docs/_site:/site
+    command: --verbose --no-progress --max-redirects 5 --retry-wait-time 2 --base http://localhost:4000 /site
+
+volumes:
+  jekyll_gems:

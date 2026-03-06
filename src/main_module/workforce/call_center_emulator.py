@@ -52,33 +52,28 @@ class CallCenterEmulator:
         self.config = config or EmulatorConfig()
         self.model = model
 
-    def _log_factorial(self, n: int) -> float:
-        if n <= 1:
-            return 0.0
-        return sum(np.log(i) for i in range(1, n + 1))
-
     def _erlang_b(self, num_agents: int, traffic_intensity: float) -> float:
         if num_agents <= 0:
             return 1.0
         if traffic_intensity <= 0:
             return 0.0
 
-        log_numerator = num_agents * np.log(
-            traffic_intensity
-        ) - self._log_factorial(num_agents)
+        # Vectorised O(n) implementation replacing the previous O(n²) Python loop.
+        # log(A^k / k!) for k = 0..N computed via cumulative log-factorial.
+        k = np.arange(num_agents + 1, dtype=float)
+        log_fact = np.zeros(num_agents + 1)
+        if num_agents > 0:
+            log_fact[1:] = np.cumsum(np.log(np.arange(1, num_agents + 1)))
 
-        log_terms = []
-        for k in range(num_agents + 1):
-            log_term = k * np.log(traffic_intensity) - self._log_factorial(k)
-            log_terms.append(log_term)
+        log_A = np.log(traffic_intensity)
+        log_terms = k * log_A - log_fact          # shape: (num_agents+1,)
+        log_numerator = log_terms[-1]             # term for k = num_agents
 
-        max_log = max(log_terms)
-        log_denominator = max_log + np.log(
-            sum(np.exp(lt - max_log) for lt in log_terms)
-        )
+        max_log = np.max(log_terms)
+        log_denominator = max_log + np.log(np.sum(np.exp(log_terms - max_log)))
 
-        result = np.exp(log_numerator - log_denominator)
-        return max(0, min(1, result))
+        result = float(np.exp(log_numerator - log_denominator))
+        return max(0.0, min(1.0, result))
 
     def _erlang_c(self, num_agents: int, traffic_intensity: float) -> float:
         if num_agents <= 0 or traffic_intensity <= 0:
