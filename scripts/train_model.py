@@ -188,6 +188,26 @@ daily_std_lookup = daily_totals.groupby("dow_day")["Call_Volume"].std().to_dict(
 print(f"  {len(daily_std_lookup)} day-of-week entries")
 
 # ==============================================================================
+# 7.5. BUILD AHT LOOKUP (per 30-min slot, for Erlang-A optimizer)
+# ==============================================================================
+print("Building AHT lookup...")
+answered = df[df["answered_flag"] == True].copy()
+answered["start"] = pd.to_datetime(answered["start_time_utc"])
+answered["end"]   = pd.to_datetime(answered["end_time_utc"])
+answered["handle_time"] = (answered["end"] - answered["start"]).dt.total_seconds()
+
+# Filter outliers: keep 0 < handle_time < 14400s (4 hours)
+answered = answered[(answered["handle_time"] > 0) & (answered["handle_time"] < 14400)]
+
+# Group by (day_of_week, 30-min slot) → mean AHT in seconds
+answered["slot"] = answered["start"].dt.floor("30min")
+answered["dow"]  = answered["slot"].dt.dayofweek
+answered["slot_str"] = answered["slot"].dt.strftime("%H:%M")
+
+aht_lookup = answered.groupby(["dow", "slot_str"])["handle_time"].mean().to_dict()
+print(f"  {len(aht_lookup)} (day_of_week, slot) entries")
+
+# ==============================================================================
 # 8. SAVE MODEL BUNDLE
 # ==============================================================================
 MODEL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -199,6 +219,7 @@ bundle = {
     "holiday_profiles": holiday_profiles,
     "forecast_weeks": FORECAST_WEEKS,
     "daily_std_lookup": daily_std_lookup,
+    "aht_lookup": aht_lookup,
     "call_volume_history": df_agg["Call_Volume"],
     "trained_at": datetime.utcnow().isoformat(),
 }
