@@ -207,6 +207,7 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
     holiday_profiles = bundle["holiday_profiles"]
     forecast_weeks = bundle["forecast_weeks"]
     history = bundle["call_volume_history"]
+    aht_lookup = bundle.get("aht_lookup", {})
 
     constraints = OptimizationConstraints(
         min_sla=min_sla,
@@ -283,7 +284,7 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
                 predicted_calls = int(round(holiday_profiles.get(key, 15)))
 
             # Staffing optimization via Erlang-A
-            slot_aht = default_aht
+            slot_aht = aht_lookup.get((dow, slot_str), default_aht)
             traffic_erlangs = predicted_calls * slot_aht / interval
             min_agents_floor = max(1, int(np.ceil(traffic_erlangs / max_occupancy)) + 1)
 
