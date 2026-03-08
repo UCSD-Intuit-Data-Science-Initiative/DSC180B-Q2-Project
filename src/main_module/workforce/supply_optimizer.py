@@ -1,6 +1,8 @@
 """Supply Optimizer - Finds minimum staffing meeting business constraints."""
 
 from dataclasses import dataclass
+from typing import Optional
+
 from .call_center_emulator import CallCenterEmulator, EmulatorMetrics
 
 
@@ -13,6 +15,7 @@ class OptimizationConstraints:
         max_wait_time: Maximum acceptable wait time in seconds, default 60
         max_occupancy: Maximum agent occupancy (0-1), default 0.85
     """
+
     min_sla: float = 0.80
     max_wait_time: float = 60.0
     max_occupancy: float = 0.85
@@ -27,6 +30,7 @@ class OptimalSupply:
         predicted_metrics: EmulatorMetrics at optimal headcount
         is_feasible: Whether optimal solution satisfies all constraints
     """
+
     headcount: int
     predicted_metrics: EmulatorMetrics
     is_feasible: bool
@@ -44,15 +48,13 @@ class SupplyOptimizer:
     Example:
         >>> emulator = CallCenterEmulator()
         >>> optimizer = SupplyOptimizer(emulator)
-        >>> constraints = OptimizationConstraints(min_sla=0.80, max_wait_time=60)
-        >>> result = optimizer.optimize(demand=150, constraints=constraints)
+        >>> cons = OptimizationConstraints(min_sla=0.80, max_wait_time=60)
+        >>> result = optimizer.optimize(demand=150, constraints=cons)
         >>> print(f"Need {result.headcount} agents")
     """
 
     def __init__(
-        self,
-        emulator: CallCenterEmulator,
-        max_supply: int = 500
+        self, emulator: CallCenterEmulator, max_supply: int = 500
     ) -> None:
         """Initialize optimizer with a call center emulator.
 
@@ -64,9 +66,7 @@ class SupplyOptimizer:
         self.max_supply = max_supply
 
     def _meets_constraints(
-        self,
-        metrics: EmulatorMetrics,
-        constraints: OptimizationConstraints
+        self, metrics: EmulatorMetrics, constraints: OptimizationConstraints
     ) -> bool:
         """Check whether predicted metrics satisfy all business constraints.
 
@@ -77,7 +77,7 @@ class SupplyOptimizer:
         Returns:
             True if all constraints are met.
         """
-        # EmulatorMetrics uses percentages (0-100); constraints use fractions (0-1)
+        # Metrics use percentages (0-100); constraints use fractions (0-1)
         return (
             metrics.sla_compliance >= constraints.min_sla * 100
             and metrics.avg_wait_time <= constraints.max_wait_time
@@ -89,7 +89,7 @@ class SupplyOptimizer:
         demand: int,
         constraints: OptimizationConstraints,
         min_agents: int = 1,
-        avg_handle_time: float = None,
+        avg_handle_time: Optional[float] = None,
     ) -> OptimalSupply:
         """Find minimum staffing meeting all constraints.
 
@@ -99,27 +99,22 @@ class SupplyOptimizer:
 
         Args:
             demand: Expected number of arriving calls (integer).
-            constraints: OptimizationConstraints with SLA/wait/occupancy targets.
-            min_agents: Start the search here instead of 1. Use this to skip
-                agent counts that can never satisfy the occupancy constraint
-                (i.e., where traffic_erlangs / max_occupancy > n).
+            constraints: SLA/wait/occupancy targets.
+            min_agents: Start the search here instead of 1.
             avg_handle_time: Override the emulator's default AHT (seconds).
-                Pass the slot-specific mean AHT from the historical lookup
-                for more accurate Erlang-A calculations. Defaults to the
-                emulator's configured avg_handle_time when None.
 
         Returns:
             OptimalSupply with minimum headcount and predicted metrics.
             is_feasible=False if no solution found within max_supply.
         """
-        # Edge case: no demand means no agents needed
         if demand <= 0:
             metrics = self.emulator.simulate_interval(0, 0, avg_handle_time)
-            return OptimalSupply(headcount=0, predicted_metrics=metrics, is_feasible=True)
+            return OptimalSupply(
+                headcount=0, predicted_metrics=metrics, is_feasible=True
+            )
 
-        # Binary search: Erlang-A metrics improve monotonically with agent count,
-        # so the feasible region is [first_feasible, max_supply]. Binary search
-        # finds the minimum feasible headcount in O(log n) instead of O(n).
+        # Binary search: metrics improve monotonically with agent count,
+        # so feasible region is [first_feasible, max_supply]. O(log n).
         lo = max(1, min_agents)
         hi = self.max_supply
         result_supply: int = self.max_supply
@@ -127,7 +122,9 @@ class SupplyOptimizer:
 
         while lo <= hi:
             mid = (lo + hi) // 2
-            metrics = self.emulator.simulate_interval(mid, demand, avg_handle_time)
+            metrics = self.emulator.simulate_interval(
+                mid, demand, avg_handle_time
+            )
             if self._meets_constraints(metrics, constraints):
                 result_supply = mid
                 result_metrics = metrics
@@ -143,7 +140,9 @@ class SupplyOptimizer:
             )
 
         # No feasible solution within max_supply
-        last_metrics = self.emulator.simulate_interval(self.max_supply, demand, avg_handle_time)
+        last_metrics = self.emulator.simulate_interval(
+            self.max_supply, demand, avg_handle_time
+        )
         return OptimalSupply(
             headcount=self.max_supply,
             predicted_metrics=last_metrics,
