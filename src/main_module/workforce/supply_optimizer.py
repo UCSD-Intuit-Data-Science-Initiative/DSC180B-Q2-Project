@@ -87,17 +87,26 @@ class SupplyOptimizer:
     def optimize(
         self,
         demand: int,
-        constraints: OptimizationConstraints
+        constraints: OptimizationConstraints,
+        min_agents: int = 1,
+        avg_handle_time: float = None,
     ) -> OptimalSupply:
         """Find minimum staffing meeting all constraints.
 
-        Searches staffing levels from 1 to max_supply, calling the emulator
-        for each level. Returns the first (minimum) headcount that satisfies
-        all constraints. Monotonicity guarantees this is optimal.
+        Searches staffing levels from min_agents to max_supply, calling the
+        emulator for each level. Returns the first (minimum) headcount that
+        satisfies all constraints. Monotonicity guarantees this is optimal.
 
         Args:
             demand: Expected number of arriving calls (integer).
             constraints: OptimizationConstraints with SLA/wait/occupancy targets.
+            min_agents: Start the search here instead of 1. Use this to skip
+                agent counts that can never satisfy the occupancy constraint
+                (i.e., where traffic_erlangs / max_occupancy > n).
+            avg_handle_time: Override the emulator's default AHT (seconds).
+                Pass the slot-specific mean AHT from the historical lookup
+                for more accurate Erlang-A calculations. Defaults to the
+                emulator's configured avg_handle_time when None.
 
         Returns:
             OptimalSupply with minimum headcount and predicted metrics.
@@ -105,22 +114,36 @@ class SupplyOptimizer:
         """
         # Edge case: no demand means no agents needed
         if demand <= 0:
-            metrics = self.emulator.simulate_interval(0, 0)
+            metrics = self.emulator.simulate_interval(0, 0, avg_handle_time)
             return OptimalSupply(headcount=0, predicted_metrics=metrics, is_feasible=True)
 
-        # Linear search: try supply = 1, 2, 3, ...
-        for supply in range(1, self.max_supply + 1):
-            metrics = self.emulator.simulate_interval(supply, demand)
+        # Binary search: Erlang-A metrics improve monotonically with agent count,
+        # so the feasible region is [first_feasible, max_supply]. Binary search
+        # finds the minimum feasible headcount in O(log n) instead of O(n).
+        lo = max(1, min_agents)
+        hi = self.max_supply
+        result_supply: int = self.max_supply
+        result_metrics: EmulatorMetrics | None = None
 
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            metrics = self.emulator.simulate_interval(mid, demand, avg_handle_time)
             if self._meets_constraints(metrics, constraints):
-                return OptimalSupply(
-                    headcount=supply,
-                    predicted_metrics=metrics,
-                    is_feasible=True,
-                )
+                result_supply = mid
+                result_metrics = metrics
+                hi = mid - 1  # try fewer agents
+            else:
+                lo = mid + 1  # need more agents
+
+        if result_metrics is not None:
+            return OptimalSupply(
+                headcount=result_supply,
+                predicted_metrics=result_metrics,
+                is_feasible=True,
+            )
 
         # No feasible solution within max_supply
-        last_metrics = self.emulator.simulate_interval(self.max_supply, demand)
+        last_metrics = self.emulator.simulate_interval(self.max_supply, demand, avg_handle_time)
         return OptimalSupply(
             headcount=self.max_supply,
             predicted_metrics=last_metrics,

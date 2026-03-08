@@ -18,6 +18,8 @@ else
     endif
 endif
 
+DOCS_COMPOSE_CMD := $(COMPOSE_CMD) -f docker-compose.docs.yml
+
 .DEFAULT_GOAL := help
 
 
@@ -40,23 +42,23 @@ test: ## Execute test suite via tox (py)
 	$(POETRY) run tox -e py
 
 ##@Documentation
-docs-up: ## Serve documentation stack using container runtime
-	$(COMPOSE_CMD) up --detach --build
+docs-up: ## Start live Jekyll docs server (docs stack only)
+	$(DOCS_COMPOSE_CMD) up --detach --build jekyll
 
-docs-down: ## Stop documentation container stack
-	$(COMPOSE_CMD) down --remove-orphans
+docs-down: ## Stop docs containers
+	$(DOCS_COMPOSE_CMD) down --remove-orphans
 
-docs-logs: ## Tail documentation service logs
-	$(COMPOSE_CMD) logs -f jekyll
+docs-logs: ## Tail Jekyll server logs
+	$(DOCS_COMPOSE_CMD) logs -f jekyll
 
-docs-check: ## Run link checker via lychee container
-	$(COMPOSE_CMD) run --rm lychee
+docs-build: ## One-off static docs build (does not start the live server)
+	$(DOCS_COMPOSE_CMD) run --rm jekyll-build
 
-docs-build: ## Build static documentation site inside container
-	$(COMPOSE_CMD) run --rm jekyll-build
+docs-check: ## One-off link check with Lychee (run docs-build first)
+	$(DOCS_COMPOSE_CMD) run --rm lychee
 
-docs-ps: ## Show status of documentation containers
-	$(COMPOSE_CMD) ps
+docs-ps: ## Show status of docs containers
+	$(DOCS_COMPOSE_CMD) ps
 
 docs-open: ## Open the local documentation site in your default browser
 	@ $(POETRY) run python -c "import webbrowser; webbrowser.open('http://localhost:4000')"

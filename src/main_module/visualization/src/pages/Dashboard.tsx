@@ -574,7 +574,7 @@ export default function Dashboard() {
                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <MetricCard
                       title="Service Level (SLA)"
-                      value={metrics ? `${metrics.avg_sla_compliance.toFixed(1)}%` : '—'}
+                      value={weeklyMetrics.isCurrentWeek ? (metrics ? `${metrics.avg_sla_compliance.toFixed(1)}%` : '—') : weeklyMetrics.sla}
                       change={weeklyMetrics.slaChange}
                       isPositive={weeklyMetrics.slaPositive}
                       icon={Target}
@@ -583,7 +583,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Avg. Waiting Time"
-                      value={metrics ? `${Math.round(metrics.avg_wait_time)}s` : '—'}
+                      value={weeklyMetrics.isCurrentWeek ? (metrics ? `${Math.round(metrics.avg_wait_time)}s` : '—') : weeklyMetrics.waitTime}
                       change={weeklyMetrics.waitChange}
                       isPositive={weeklyMetrics.waitPositive}
                       icon={Clock}
@@ -592,7 +592,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Avg. Agent Occupancy"
-                      value={metrics ? `${metrics.avg_occupancy.toFixed(1)}%` : '—'}
+                      value={weeklyMetrics.isCurrentWeek ? (metrics ? `${metrics.avg_occupancy.toFixed(1)}%` : '—') : weeklyMetrics.occupancy}
                       change={weeklyMetrics.occupancyChange}
                       isPositive={weeklyMetrics.occupancyPositive}
                       icon={TrendingUp}
@@ -601,7 +601,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Total Calls Processed"
-                      value={metrics ? metrics.total_calls.toLocaleString() : '—'}
+                      value={weeklyMetrics.isCurrentWeek ? (metrics ? metrics.total_calls.toLocaleString() : '—') : weeklyMetrics.totalCalls}
                       change={weeklyMetrics.callsChange}
                       isPositive={weeklyMetrics.callsPositive}
                       icon={Phone}

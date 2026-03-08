@@ -3,56 +3,106 @@ Workforce Optimization API
 --------------------------
 FastAPI backend that serves ML pipeline results to the React dashboard.
 
+The RF+GB ensemble model is trained offline by `scripts/train_model.py` and
+saved to `data/models/call_volume_model_bundle.pkl`.  At startup this API
+loads the bundle once via @lru_cache — no training happens here.
+
 Endpoints:
   GET /                          health check - confirms server is running
   GET /api/metrics?date=         day-level summary (total calls, peak agents, etc.)
   GET /api/forecast?date=        demand forecast per 30-min slot
   GET /api/staffing?date=        staffing schedule per 30-min slot
+  GET /api/weekly-forecast?week_start=  7-day forecast with error bars
 
 How to run locally (no Docker):
   pip install fastapi uvicorn
   cd <project root>
-  PYTHONPATH=src uvicorn src.main_module.api.main:app --reload --port 8000
+  PYTHONPATH=src uvicorn main_module.api.main:app --reload --port 8000
   Then open: http://localhost:8000
   Interactive API docs: http://localhost:8000/docs
 """
 
+import os
+import pickle
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 # ---------------------------------------------------------------------------
 # File paths
 # ---------------------------------------------------------------------------
 
-DATA_ROOT      = Path(__file__).resolve().parent.parent.parent.parent
-DATA_PATH      = DATA_ROOT / "data" / "interim" / "mock_intuit_2year_data.csv"
-DATASET_1_PATH = DATA_ROOT / "data" / "parquet" / "dataset_1_call_related.parquet"
-DATASET_4_PATH = DATA_ROOT / "data" / "parquet" / "dataset_4_expert_state_interval.parquet"
+DATA_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+MODEL_PATH = Path(os.environ.get(
+    "MODEL_PATH",
+    str(DATA_ROOT / "data" / "models" / "call_volume_model_bundle.pkl"),
+))
+
+# ---------------------------------------------------------------------------
+# Major holidays — must match train_model.py exactly
+# ---------------------------------------------------------------------------
+
+MAJOR_HOLIDAYS = pd.to_datetime([
+    "2024-01-01", "2025-01-01", "2026-01-01",
+    "2024-11-28", "2025-11-27", "2026-11-26",
+    "2024-12-25", "2025-12-25", "2026-12-25",
+])
 
 # ---------------------------------------------------------------------------
 # Global variables
-# Hold the trained model so we only train ONCE at startup,
-# not on every single request.
 # ---------------------------------------------------------------------------
 
-# These start as None — they get filled in by startup() below
-forecaster = None
 emulator = None
 optimizer = None
-model_ready = False  # becomes True once training finishes successfully
+model_ready = False
 
-# MVP: XGBoost model + historical lookup tables from parquet files
-xgb_model        = None  # XGBoost trained on dataset_1 call volume
-xgb_features     = []    # feature column names used during training
-wait_time_lookup = {}    # (day_of_week, slot) -> avg wait time (seconds)
-sla_lookup       = {}    # (day_of_week, slot) -> avg SLA %
-occupancy_lookup = {}    # (day_of_week, slot) -> avg occupancy %
-agents_lookup    = {}    # (day_of_week, slot) -> avg agent count
-daily_std_lookup = {}    # day_of_week -> historical std dev of daily call volume (for error bars)
+# ---------------------------------------------------------------------------
+# Model loader — @lru_cache ensures the pkl is read exactly once
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=1)
+def load_model_bundle():
+    """
+    Load the pre-trained RF+GB ensemble bundle from disk.
+
+    Uses @lru_cache(maxsize=1) so the pickle file is deserialized exactly
+    once: startup() pre-warms the cache, and all subsequent calls return
+    the same Python objects instantly.
+
+    Returns a dict with keys:
+        rf_model, gb_model, features, holiday_profiles,
+        forecast_weeks, daily_std_lookup, call_volume_history, trained_at
+    """
+    if not Path(MODEL_PATH).exists():
+        raise FileNotFoundError(
+            f"Model file not found at {MODEL_PATH}. "
+            f"Run 'PYTHONPATH=src python scripts/train_model.py' first."
+        )
+    with open(MODEL_PATH, "rb") as f:
+        bundle = pickle.load(f)
+    print(f"Model bundle loaded from {MODEL_PATH}")
+    return bundle
+
+
+def _build_emulator_and_optimizer():
+    """Initialize the queueing emulator and staffing optimizer."""
+    from main_module.workforce.call_center_emulator import CallCenterEmulator, EmulatorConfig
+    from main_module.workforce.supply_optimizer import SupplyOptimizer
+
+    emu = CallCenterEmulator(EmulatorConfig(
+        avg_handle_time=600,             # 10-min average call handle time
+        sla_threshold_seconds=60,        # SLA = answered within 60 seconds
+        avg_patience_time=180,           # callers hang up after ~3 min wait
+        interval_duration_seconds=1800,  # 30-min slot
+    ))
+    opt = SupplyOptimizer(emu, max_supply=5000)
+    return emu, opt
 
 
 # ---------------------------------------------------------------------------
@@ -61,8 +111,6 @@ daily_std_lookup = {}    # day_of_week -> historical std dev of daily call volum
 
 app = FastAPI(title="Workforce Optimization API")
 
-# CORS middleware — allows the React frontend (localhost:5173) to call this API.
-# Without this, the browser blocks all requests from a different port (CORS error).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173"],
@@ -78,153 +126,34 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     """
-    Train the ML model when the server starts up.
+    Load the pre-trained model bundle and initialize the Erlang-A optimizer.
 
-    This function runs automatically when you start the server.
-    Training takes about 1 minute on first run.
-    After that, the trained model stays in memory so every API request is fast.
-
-    The `global` keyword lets us write to the module-level variables
-    (forecaster, emulator, optimizer, model_ready) defined above.
-    Without `global`, Python would treat them as local variables and
-    the rest of the code would not be able to see the trained model.
+    No training happens here — the model is loaded from the pkl file
+    produced by scripts/train_model.py.
     """
-    global forecaster, emulator, optimizer, model_ready
-    global xgb_model, xgb_features, wait_time_lookup, sla_lookup, occupancy_lookup, agents_lookup, daily_std_lookup
+    global emulator, optimizer, model_ready
 
-    # --- MVP: XGBoost + parquet lookup tables ---
-    # Trains XGBoost on dataset_1 call volume; builds lookup tables from dataset_1 and dataset_4.
-    # Mirrors feature engineering from scripts/forecasting_dynamic_weeks.py (no lag features).
     print("=" * 60)
-    print("Startup: loading parquet data and training XGBoost...")
-    print("(This takes ~30 seconds — only happens once at startup)")
+    print("Startup: loading pre-trained model bundle...")
     print("=" * 60)
 
     try:
-        from xgboost import XGBRegressor
+        load_model_bundle()  # pre-warm the @lru_cache
 
-        # --- dataset_1: train XGBoost + compute wait time / SLA lookups ---
-        # Only load the two timestamp columns we need — avoids reading the full 557 MB file
-        call_df = pd.read_parquet(str(DATASET_1_PATH), columns=["arrival_time_utc", "start_time_utc"])
-        call_df["arrival"] = pd.to_datetime(call_df["arrival_time_utc"])
-        call_df["start"]   = pd.to_datetime(call_df["start_time_utc"])
-
-        # Aggregate to 30-min call volume (mirrors forecasting_dynamic_weeks.py step 1)
-        df_agg = call_df.set_index("arrival").resample("30min").size().to_frame("call_volume")
-        df_agg = df_agg.asfreq("30min", fill_value=0)
-
-        # Feature engineering — same columns as forecasting_dynamic_weeks.py, no lag features
-        df_agg["hour"]      = df_agg.index.hour
-        df_agg["dayofweek"] = df_agg.index.dayofweek
-        df_agg["month"]     = df_agg.index.month
-        df_agg["hour_sin"]  = np.sin(2 * np.pi * df_agg["hour"] / 24)
-        df_agg["hour_cos"]  = np.cos(2 * np.pi * df_agg["hour"] / 24)
-        df_agg["day_sin"]   = np.sin(2 * np.pi * df_agg["dayofweek"] / 7)
-        df_agg["day_cos"]   = np.cos(2 * np.pi * df_agg["dayofweek"] / 7)
-        tax_days            = pd.to_datetime(df_agg.index.year.astype(str) + "-04-15")
-        df_agg["days_to_tax"]   = (tax_days - df_agg.index.normalize()).days
-        df_agg["is_tax_season"] = ((df_agg["month"] <= 4) & (df_agg["days_to_tax"] >= 0)).astype(int)
-
-        xgb_features = ["hour_sin", "hour_cos", "day_sin", "day_cos",
-                         "month", "days_to_tax", "is_tax_season"]
-
-        train = df_agg.dropna()
-        xgb_model = XGBRegressor(
-            n_estimators=100, max_depth=5, learning_rate=0.1,
-            n_jobs=-1, random_state=42
-        )
-        xgb_model.fit(train[xgb_features], train["call_volume"])
-        print("XGBoost trained on call volume.")
-
-        # Daily std dev lookup — used for error bars in the weekly forecast chart
-        df_agg["date_only"] = df_agg.index.normalize()
-        df_agg["dow_day"]   = df_agg.index.dayofweek
-        daily_totals     = df_agg.groupby(["dow_day", "date_only"])["call_volume"].sum().reset_index()
-        daily_std_lookup = daily_totals.groupby("dow_day")["call_volume"].std().to_dict()
-        print("Daily std dev lookup built for weekly chart error bars.")
-
-        # Wait time and SLA lookups from raw call records
-        call_df["wait_secs"] = (call_df["start"] - call_df["arrival"]).dt.total_seconds().clip(lower=0)
-        call_df["sla_met"]   = (call_df["wait_secs"] <= 60).astype(float) * 100
-        call_df["dow"]       = call_df["arrival"].dt.dayofweek
-        call_df["slot"]      = call_df["arrival"].dt.hour * 2 + call_df["arrival"].dt.minute // 30
-        wait_time_lookup = call_df.groupby(["dow", "slot"])["wait_secs"].mean().to_dict()
-        sla_lookup       = call_df.groupby(["dow", "slot"])["sla_met"].mean().to_dict()
-        print("Wait time and SLA lookups built from dataset_1.")
-
-        # --- dataset_4: occupancy + agent count lookups ---
-        # Only load the four columns we need — avoids reading the full 770 MB file
-        occ_df = pd.read_parquet(str(DATASET_4_PATH), columns=["interval_start_utc", "occupancy_pct_normalized", "expert_id", "date"])
-        occ_df["dow"]  = pd.to_datetime(occ_df["interval_start_utc"]).dt.dayofweek
-        occ_df["slot"] = (pd.to_datetime(occ_df["interval_start_utc"]).dt.hour * 2
-                          + pd.to_datetime(occ_df["interval_start_utc"]).dt.minute // 30)
-        occupancy_lookup = occ_df.groupby(["dow", "slot"])["occupancy_pct_normalized"].mean().to_dict()
-        n_agent_dates    = occ_df.groupby(["dow", "slot"])["date"].nunique()
-        n_agents         = occ_df.groupby(["dow", "slot"])["expert_id"].nunique()
-        agents_lookup    = (n_agents / n_agent_dates).to_dict()
-        print("Occupancy and agent count lookups built from dataset_4.")
+        emulator, optimizer = _build_emulator_and_optimizer()
 
         model_ready = True
         print("=" * 60)
-        print("Startup complete! API is ready to serve real ML predictions.")
+        print("Startup complete! Model loaded, API is ready.")
         print("=" * 60)
 
+    except FileNotFoundError as e:
+        print(f"WARNING: {e}")
+        print("API will return placeholder data.")
     except Exception as e:
-        print(f"WARNING: Startup training failed: {e}")
+        print(f"WARNING: Startup failed: {e}")
         print("API will return placeholder data.")
 
-    # --- OLD ML TRAINING (HybridForecaster) — kept for reference ---
-    # print("Startup: skipping model training, using placeholder data.")
-    # print("To enable real ML results, uncomment the training block in startup().")
-
-    # if not DATA_PATH.exists():
-    #     print(f"WARNING: Data file not found at {DATA_PATH}")
-    #     print("The API will return placeholder data until the file is available.")
-    #     return
-
-    # # Import the ML modules from our Python package
-    # from main_module.workforce import (
-    #     CallCenterEmulator,
-    #     EmulatorConfig,
-    #     HybridForecaster,
-    #     SupplyOptimizer,
-    # )
-
-    # # Step 1: Train the demand forecasting model
-    # print("=" * 60)
-    # print("Startup: training HybridForecaster...")
-    # print("(This takes ~1 minute — only happens once at startup)")
-    # print("=" * 60)
-
-    # forecaster = HybridForecaster()
-    # forecaster.train(
-    #     str(DATA_PATH),
-    #     test_year=2025,
-    #     tune_hyperparameters=True,
-    #     n_trials=10,
-    # )
-
-    # # Step 2: Set up the call center emulator with business config
-    # emulator = CallCenterEmulator(
-    #     config=EmulatorConfig(
-    #         avg_handle_time=300,             # average call handle time = 5 minutes
-    #         sla_threshold_seconds=60,        # SLA = must answer within 60 seconds
-    #         interval_duration_seconds=1800,  # each time slot = 30 minutes
-    #     )
-    # )
-
-    # # Step 3: Set up the supply optimizer (uses the emulator internally)
-    # optimizer = SupplyOptimizer(emulator, max_supply=500)
-
-    # model_ready = True
-    # print("=" * 60)
-    # print("Startup complete! API is ready.")
-    # print("=" * 60)
-
-
-# ---------------------------------------------------------------------------
-# Shutdown — runs when the server stops
-# ---------------------------------------------------------------------------
 
 @app.on_event("shutdown")
 def shutdown():
@@ -233,30 +162,13 @@ def shutdown():
 
 # ---------------------------------------------------------------------------
 # Helper: placeholder data
-# Used when the data CSV file is missing (e.g. fresh clone without data folder)
 # ---------------------------------------------------------------------------
 
 def get_placeholder_slots():
-    """
-    Return fake per-slot data so the server does not crash when the real
-    data file is not present on this machine.
-
-    A teammate can still run the server and see something in the React
-    dashboard even before they have the data file downloaded.
-
-    Once the real data file exists, this function is never called.
-    """
-    import random
-    random.seed(42)  # seed makes the random numbers the same every time
-
-    # Business hours: 5am to 5pm in 30-minute slots  →  24 slots total
+    """Return zero-filled slots when the model bundle is not available."""
     time_slots = [f"{h:02d}:{m:02d}" for h in range(5, 17) for m in (0, 30)]
-
-    slots = []
-    for t in time_slots:
-        # NOTE: all zeros = model not ready / parquet files not found.
-        # If you see zeros in the dashboard, it means startup() failed or is still running.
-        slots.append({
+    return [
+        {
             "time": t,
             "predicted_calls": 0,
             "agents": 0,
@@ -265,8 +177,9 @@ def get_placeholder_slots():
             "utilization_rate": 0,
             "abandonment_rate": 0,
             "is_feasible": False,
-        })
-    return slots
+        }
+        for t in time_slots
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -275,101 +188,126 @@ def get_placeholder_slots():
 
 def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
     """
-    Run the full ML pipeline for a given date and constraints.
+    Run the RF+GB ensemble + Erlang-A optimizer for a given date.
 
-    This is the core logic that connects the forecaster and optimizer.
-    It is called by the /api/metrics and /api/staffing endpoints.
+    For each 30-min slot (05:00–17:00):
+      1. Build the 15-feature vector (calendar + lag features)
+      2. Predict call volume with both RF and GB, average 50/50
+      3. Apply holiday override if the date is a major holiday
+      4. Feed predicted calls into SupplyOptimizer (binary search + Erlang-A)
 
-    How it works:
-      1. Pass date_str to forecaster.predict_day()
-         The forecaster uses the seasonal/time patterns it learned during
-         training to estimate how many calls will arrive each 30-min slot
-         on that specific date. Works for any date: past, present, or future.
-
-      2. For each open slot, pass the predicted call count to optimizer.optimize()
-         The optimizer tries 1 agent, then 2, then 3... until the SLA/wait/
-         occupancy constraints are met, then returns the minimum headcount needed.
-
-      3. Return all slots as a list of dicts (one dict per 30-min slot)
-
-    Parameters:
-      date_str     : date string like "2025-04-15"
-                     comes from the ?date= URL parameter sent by React
-      min_sla      : minimum SLA as a decimal fraction  (e.g. 0.80 = 80%)
-                     comes from the SLA slider in the React SimulationPanel
-      max_wait_time: max average wait time in seconds   (e.g. 60.0)
-                     comes from the Max Wait slider in React
-      max_occupancy: max agent occupancy as a fraction  (e.g. 0.85 = 85%)
-                     comes from the Max Occupancy slider in React
+    Returns a list of 24 dicts, one per slot.
     """
-    # --- MVP: XGBoost predictions + historical lookup tables ---
-    # Uses xgb_model for call volume, and precomputed lookups for all other metrics.
-    ts  = pd.Timestamp(date_str)
+    from main_module.workforce.supply_optimizer import OptimizationConstraints
+
+    bundle = load_model_bundle()
+    rf_model = bundle["rf_model"]
+    gb_model = bundle["gb_model"]
+    features = bundle["features"]
+    holiday_profiles = bundle["holiday_profiles"]
+    forecast_weeks = bundle["forecast_weeks"]
+    history = bundle["call_volume_history"]
+    aht_lookup = bundle.get("aht_lookup", {})
+
+    constraints = OptimizationConstraints(
+        min_sla=min_sla,
+        max_wait_time=max_wait_time,
+        max_occupancy=max_occupancy,
+    )
+
+    ts = pd.Timestamp(date_str)
     dow = ts.dayofweek
-    tax_day     = pd.Timestamp(f"{ts.year}-04-15")
+    tax_day = pd.Timestamp(f"{ts.year}-04-15")
     days_to_tax = (tax_day - ts.normalize()).days
+
+    # Pre-compute holiday flags for this date (once, not per slot)
+    cal = USFederalHolidayCalendar()
+    date_holidays = cal.holidays(start=ts.normalize(), end=ts.normalize())
+    date_normalized = ts.normalize()
+    is_major = int(date_normalized in MAJOR_HOLIDAYS)
+    is_minor = int(len(date_holidays) > 0 and not is_major)
+
+    # Lag feature helpers
+    lag_intervals = forecast_weeks * 7 * 48
+    history_mean = float(history.mean())
+    history_max = float(history.max())
+
+    interval = optimizer.emulator.config.interval_duration_seconds
+    default_aht = optimizer.emulator.config.avg_handle_time
 
     results = []
     for hour in range(5, 17):
         for minute in (0, 30):
-            slot = hour * 2 + minute // 30
-            key  = (dow, slot)
+            slot_str = f"{hour:02d}:{minute:02d}"
+            slot_ts = pd.Timestamp(f"{date_str} {slot_str}")
 
-            # Build one-row feature vector for XGBoost (same features as training)
+            # Compute lag features from historical call volume
+            lag_ts = slot_ts - pd.Timedelta(weeks=forecast_weeks)
+            lag_value = history.get(lag_ts, history_mean)
+
+            window_start = lag_ts - pd.Timedelta(weeks=forecast_weeks)
+            window = history.loc[window_start:lag_ts]
+            trend_value = float(window.mean()) if len(window) > 0 else history_mean
+            max_value = float(window.max()) if len(window) > 0 else history_max
+
+            # Build the 15-feature vector matching training
+            lag_feat = f"lag_{forecast_weeks}weeks"
+            trend_feat = f"trend_{forecast_weeks}w"
+            max_feat = f"max_{forecast_weeks}w"
+
             feat_row = pd.DataFrame([{
-                "hour_sin":      np.sin(2 * np.pi * hour / 24),
-                "hour_cos":      np.cos(2 * np.pi * hour / 24),
-                "day_sin":       np.sin(2 * np.pi * dow / 7),
-                "day_cos":       np.cos(2 * np.pi * dow / 7),
-                "month":         ts.month,
-                "days_to_tax":   days_to_tax,
-                "is_tax_season": int(ts.month <= 4 and days_to_tax >= 0),
+                "hour_sin":         np.sin(2 * np.pi * hour / 24),
+                "hour_cos":         np.cos(2 * np.pi * hour / 24),
+                "day_sin":          np.sin(2 * np.pi * dow / 7),
+                "day_cos":          np.cos(2 * np.pi * dow / 7),
+                "month":            ts.month,
+                "weekofyear":       int(ts.isocalendar()[1]),
+                "is_january":       int(ts.month == 1),
+                "is_minor_holiday": is_minor,
+                "is_major_holiday": is_major,
+                "days_to_tax_day":  days_to_tax,
+                "is_tax_season":    int(ts.month <= 4 and days_to_tax >= 0),
+                "is_post_tax_drop": int(days_to_tax < 0 and days_to_tax > -31),
+                lag_feat:           float(lag_value),
+                trend_feat:         float(trend_value),
+                max_feat:           float(max_value),
             }])
-            predicted_calls = max(0, round(xgb_model.predict(feat_row[xgb_features])[0]))
+
+            # Ensemble prediction: 50/50 average of RF and GB
+            pred_rf = rf_model.predict(feat_row[features])[0]
+            pred_gb = gb_model.predict(feat_row[features])[0]
+            predicted_calls = max(0, int(round((pred_rf + pred_gb) / 2)))
+
+            # Business logic override: major holidays use historical profile
+            if is_major:
+                key = (slot_ts.month, slot_ts.day, slot_ts.time())
+                predicted_calls = int(round(holiday_profiles.get(key, 15)))
+
+            # Staffing optimization via Erlang-A
+            slot_aht = aht_lookup.get((dow, slot_str), default_aht)
+            traffic_erlangs = predicted_calls * slot_aht / interval
+            min_agents_floor = max(1, int(np.ceil(traffic_erlangs / max_occupancy)) + 1)
+
+            supply_result = optimizer.optimize(
+                predicted_calls, constraints,
+                min_agents=min_agents_floor,
+                avg_handle_time=slot_aht,
+            )
+            metrics = supply_result.predicted_metrics
 
             results.append({
-                "time":             f"{hour:02d}:{minute:02d}",
+                "time":             slot_str,
                 "predicted_calls":  predicted_calls,
-                "agents":           round(agents_lookup.get(key, 5)),
-                "avg_wait_time":    round(wait_time_lookup.get(key, 30.0), 1),
-                "sla_compliance":   round(sla_lookup.get(key, 90.0), 1),
-                "utilization_rate": round(occupancy_lookup.get(key, 80.0), 1),
-                "abandonment_rate": 2.0,
-                "is_feasible":      True,
+                "agents":           supply_result.headcount,
+                "avg_wait_time":    round(metrics.avg_wait_time, 1),
+                "sla_compliance":   round(metrics.sla_compliance, 1),
+                "utilization_rate": round(metrics.utilization_rate, 1),
+                "abandonment_rate": round(metrics.abandonment_rate, 1),
+                "is_feasible":      supply_result.is_feasible,
+                "aht_seconds_used": float(round(slot_aht, 1)),
             })
 
     return results
-
-    # --- OLD pipeline using HybridForecaster + SupplyOptimizer (kept for reference) ---
-    # from main_module.workforce import OptimizationConstraints
-    # constraints = OptimizationConstraints(
-    #     min_sla=min_sla,
-    #     max_wait_time=max_wait_time,
-    #     max_occupancy=max_occupancy,
-    # )
-    # demand_df = forecaster.predict_day(date_str)
-    # demand_df["time"] = demand_df["interval_start"].dt.strftime("%H:%M")
-    # demand_df["is_open"] = (
-    #     (demand_df["interval_start"].dt.hour >= 5)
-    #     & (demand_df["interval_start"].dt.hour < 17)
-    # )
-    # open_slots = demand_df[demand_df["is_open"] & (demand_df["predicted_calls"] > 0)]
-    # results = []
-    # for _, row in open_slots.iterrows():
-    #     demand = int(row["predicted_calls"])
-    #     supply_result = optimizer.optimize(demand, constraints)
-    #     metrics = supply_result.predicted_metrics
-    #     results.append({
-    #         "time": row["time"],
-    #         "predicted_calls": demand,
-    #         "agents": supply_result.headcount,
-    #         "avg_wait_time": round(metrics.avg_wait_time, 1),
-    #         "sla_compliance": round(metrics.sla_compliance, 1),
-    #         "utilization_rate": round(metrics.utilization_rate, 1),
-    #         "abandonment_rate": round(metrics.abandonment_rate, 1),
-    #         "is_feasible": supply_result.is_feasible,
-    #     })
-    # return results
 
 
 # ---------------------------------------------------------------------------
@@ -378,14 +316,11 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
 
 @app.get("/")
 def root():
-    """
-    Health check endpoint.
-    Visit http://localhost:8000 in your browser to confirm the server is running.
-    Returns whether the ML model has finished training yet.
-    """
+    """Health check — confirms server is running and model is loaded."""
     return {
         "status": "ok",
         "model_ready": model_ready,
+        "model_path": str(MODEL_PATH),
         "message": "Workforce Optimization API is running",
     }
 
@@ -394,19 +329,7 @@ def root():
 def get_metrics(date: str = "2025-04-15"):
     """
     Return day-level summary metrics for the given date.
-
-    These numbers power the 4 KPI cards at the top of the React dashboard:
-      total_calls        →  Total Calls Processed card
-      avg_sla_compliance →  Service Level (SLA) card
-      avg_wait_time      →  Avg. Waiting Time card
-      peak_agents        →  peak headcount needed that day
-
-    How React calls this:
-      fetch("http://localhost:8000/api/metrics?date=2025-04-15")
-
-    The date comes from whatever the user selected in the React date picker.
-    The default "2025-04-15" is only used on the very first load before the
-    user has picked a date.
+    Powers the 4 KPI cards at the top of the React dashboard.
     """
     if not model_ready:
         slots = get_placeholder_slots()
@@ -427,11 +350,10 @@ def get_metrics(date: str = "2025-04-15"):
             detail=f"No open business-hours intervals found for {date}",
         )
 
-    # Aggregate all per-slot numbers into a single day-level summary
-    total_calls   = sum(s["predicted_calls"] for s in slots)
-    peak_agents   = max(s["agents"] for s in slots)
-    avg_sla       = round(sum(s["sla_compliance"] for s in slots) / len(slots), 1)
-    avg_wait      = round(sum(s["avg_wait_time"] for s in slots) / len(slots), 1)
+    total_calls = sum(s["predicted_calls"] for s in slots)
+    peak_agents = max(s["agents"] for s in slots)
+    avg_sla = round(sum(s["sla_compliance"] for s in slots) / len(slots), 1)
+    avg_wait = round(sum(s["avg_wait_time"] for s in slots) / len(slots), 1)
     avg_occupancy = round(sum(s["utilization_rate"] for s in slots) / len(slots), 1)
     feasible_count = sum(1 for s in slots if s["is_feasible"])
 
@@ -452,21 +374,7 @@ def get_metrics(date: str = "2025-04-15"):
 def get_forecast(date: str = "2025-04-15"):
     """
     Return predicted call volume per 30-min slot for the given date.
-
-    This powers the DemandChart (area chart) in the React dashboard.
-
-    How React calls this:
-      fetch("http://localhost:8000/api/forecast?date=2025-04-15")
-
-    The forecaster applies the seasonal patterns it learned during training
-    to estimate call volume for that specific date. Works for any date.
-
-    Example response:
-      [
-        {"time": "05:00", "predicted_calls": 12, "model_used": "long-term"},
-        {"time": "05:30", "predicted_calls": 18, "model_used": "long-term"},
-        ...
-      ]
+    Powers the DemandChart (area chart) in the React dashboard.
     """
     if not model_ready:
         slots = get_placeholder_slots()
@@ -477,46 +385,22 @@ def get_forecast(date: str = "2025-04-15"):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    return [{"time": s["time"], "predicted_calls": s["predicted_calls"], "model_used": "xgboost"} for s in slots]
-
-    # --- OLD forecast using HybridForecaster (kept for reference) ---
-    # demand_df = forecaster.predict_day(date)
-    # demand_df["time"] = demand_df["interval_start"].dt.strftime("%H:%M")
-    # demand_df["is_open"] = (
-    #     (demand_df["interval_start"].dt.hour >= 5)
-    #     & (demand_df["interval_start"].dt.hour < 17)
-    # )
-    # open_df = demand_df[demand_df["is_open"]]
-    # return [
-    #     {"time": row["time"], "predicted_calls": int(row["predicted_calls"]), "model_used": row["model_used"]}
-    #     for _, row in open_df.iterrows()
-    # ]
+    return [{"time": s["time"], "predicted_calls": s["predicted_calls"], "model_used": "rf_gb_ensemble"} for s in slots]
 
 
 @app.get("/api/weekly-forecast")
 def get_weekly_forecast(week_start: str = "2025-04-14"):
     """
-    Return 7 days of XGBoost-predicted total call volume for the given week.
+    Return 7 days of predicted total call volume for the given week.
     Powers the Weekly Demand Forecast bar chart in the React dashboard.
-
-    How React calls this:
-      fetch("http://localhost:8000/api/weekly-forecast?week_start=2025-04-14")
-
-    week_start should be a Monday (YYYY-MM-DD). Returns 7 items, one per day Mon–Sun.
-    `range` is the historical std dev of daily call volume for that day-of-week,
-    used as the ± error bar in the bar chart.
-
-    Example response:
-      [
-        {"date": "2025-04-14", "day_label": "Mon 4/14", "total_calls": 27500, "range": 1800},
-        {"date": "2025-04-15", "day_label": "Tue 4/15", "total_calls": 28100, "range": 1800},
-        ...
-      ]
     """
     if not model_ready:
         return []
 
     try:
+        bundle = load_model_bundle()
+        daily_std_lookup = bundle["daily_std_lookup"]
+
         start = pd.Timestamp(week_start)
         result = []
         for i in range(7):
@@ -546,37 +430,7 @@ def get_staffing(
 ):
     """
     Return the full staffing schedule per 30-min slot for the given date.
-
-    This powers the staffing table and combined chart in the React dashboard.
-    The SimulationPanel sliders in React pass their values as query parameters
-    so users can re-run the optimizer with different constraints interactively.
-
-    How React calls this (default constraints):
-      fetch("http://localhost:8000/api/staffing?date=2025-04-15")
-
-    How React calls this (custom constraints from sliders):
-      fetch("http://localhost:8000/api/staffing?date=2025-04-15&min_sla=0.90&max_wait=45&max_occupancy=0.80")
-
-    Query parameters — all come from the React UI:
-      date         : date string from the date picker,   e.g. "2025-04-15"
-      min_sla      : SLA slider value as fraction,        e.g. 0.80 = 80%
-      max_wait     : Max Wait slider value in seconds,    e.g. 60.0
-      max_occupancy: Max Occupancy slider as fraction,    e.g. 0.85 = 85%
-
-    Example response:
-      [
-        {
-          "time": "09:00",
-          "predicted_calls": 87,
-          "agents": 42,
-          "avg_wait_time": 18.3,
-          "sla_compliance": 91.5,
-          "utilization_rate": 74.2,
-          "abandonment_rate": 2.1,
-          "is_feasible": true
-        },
-        ...
-      ]
+    Powers the staffing table and combined chart in the React dashboard.
     """
     if not model_ready:
         return get_placeholder_slots()
