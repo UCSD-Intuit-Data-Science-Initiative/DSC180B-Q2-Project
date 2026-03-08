@@ -116,12 +116,21 @@ def load_agent_analytics():
     return agent_analytics
 
 
+def _resolve_data_dir():
+    for d in [PARQUET_DIR, DATA_ROOT / "data" / "raw"]:
+        p = Path(d)
+        if (p / "dataset_4_expert_state_interval.parquet").exists():
+            return str(p)
+    return str(PARQUET_DIR)
+
+
 @lru_cache(maxsize=1)
 def load_shift_scheduler():
     global shift_scheduler
-    shift_scheduler = ShiftScheduler(data_dir=str(PARQUET_DIR))
+    data_dir = _resolve_data_dir()
+    shift_scheduler = ShiftScheduler(data_dir=data_dir)
     shift_scheduler.load_agent_patterns(tax_year=None, recent_days=90)
-    print(f"ShiftScheduler loaded from {PARQUET_DIR}")
+    print(f"ShiftScheduler loaded from {data_dir}")
     return shift_scheduler
 
 
@@ -140,10 +149,11 @@ def startup():
 
         load_agent_analytics()
 
+        load_shift_scheduler()
+
         model_ready = True
         print("=" * 60)
         print("Startup complete! Model loaded, API is ready.")
-        print("(ShiftScheduler will be loaded lazily on first request)")
         print("=" * 60)
 
     except FileNotFoundError as e:
@@ -198,7 +208,8 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
     for hour in range(5, 17):
         for minute in (0, 30):
             slot_str = f"{hour:02d}:{minute:02d}"
-            slot_ts = pd.Timestamp(f"{date_str} {slot_str}")
+            h_utc = (hour + 8) % 24
+            slot_ts = pd.Timestamp(f"{date_str} {h_utc:02d}:{minute:02d}")
 
             predicted_calls = fc.predict(slot_ts)
 
@@ -598,7 +609,17 @@ def get_schedule(
 ):
     try:
         ss = load_shift_scheduler()
+    except Exception as e:
+        import traceback
 
+        print(f"ShiftScheduler load failed: {e}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Shift scheduler failed to load: {str(e)}",
+        )
+
+    try:
         slots = run_pipeline_for_date(date, 0.80, 60.0, 0.85)
         demand_by_slot = {}
         for slot in slots:
