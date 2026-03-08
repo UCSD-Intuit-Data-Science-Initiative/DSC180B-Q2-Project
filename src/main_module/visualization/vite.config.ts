@@ -57,5 +57,12 @@
       port: 3000,
       host: true,
       open: true,
+      proxy: {
+        '/api': {
+          target: 'http://backend:8000',
+          changeOrigin: true,
+          timeout: 120000,
+        },
+      },
     },
   });

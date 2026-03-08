@@ -26,7 +26,12 @@ from main_module.workforce import (
     OptimizationConstraints,
 )
 
-DATA_PATH = str(Path(__file__).resolve().parent.parent / "data" / "interim" / "mock_intuit_2year_data.csv")
+DATA_PATH = str(
+    Path(__file__).resolve().parent.parent
+    / "data"
+    / "interim"
+    / "mock_intuit_2year_data.csv"
+)
 
 
 def main():
@@ -38,7 +43,9 @@ def main():
     print("=" * 70)
 
     forecaster = HybridForecaster()
-    forecaster.train(DATA_PATH, test_year=2025, tune_hyperparameters=True, n_trials=10)
+    forecaster.train(
+        DATA_PATH, test_year=2025, tune_hyperparameters=True, n_trials=10
+    )
 
     # ---------------------------------------------------------------
     # Step 2: Forecast demand for a target date
@@ -54,13 +61,15 @@ def main():
     # HybridForecaster doesn't include time/is_open columns — derive them
     demand_df["time"] = demand_df["interval_start"].dt.strftime("%H:%M")
     demand_df["is_open"] = (
-        (demand_df["interval_start"].dt.hour >= 5) &
-        (demand_df["interval_start"].dt.hour < 17) &
-        (demand_df["interval_start"].dt.dayofweek < 5)
+        (demand_df["interval_start"].dt.hour >= 5)
+        & (demand_df["interval_start"].dt.hour < 17)
+        & (demand_df["interval_start"].dt.dayofweek < 5)
     )
 
     # Filter to open intervals with predicted calls > 0
-    open_intervals = demand_df[demand_df["is_open"] & (demand_df["predicted_calls"] > 0)]
+    open_intervals = demand_df[
+        demand_df["is_open"] & (demand_df["predicted_calls"] > 0)
+    ]
 
     if open_intervals.empty:
         print("No open intervals with calls predicted. Exiting.")
@@ -81,17 +90,17 @@ def main():
 
     emulator = CallCenterEmulator(
         config=EmulatorConfig(
-            avg_handle_time=300,          # 5 min average call
-            sla_threshold_seconds=60,     # 60s SLA window
+            avg_handle_time=300,  # 5 min average call
+            sla_threshold_seconds=60,  # 60s SLA window
             interval_duration_seconds=1800,  # 30 min interval
         )
     )
     optimizer = SupplyOptimizer(emulator, max_supply=500)
 
     constraints = OptimizationConstraints(
-        min_sla=0.80,           # 80% of calls answered within 60s
-        max_wait_time=60.0,     # avg wait under 60s
-        max_occupancy=0.85,     # agents no more than 85% utilized
+        min_sla=0.80,  # 80% of calls answered within 60s
+        max_wait_time=60.0,  # avg wait under 60s
+        max_occupancy=0.85,  # agents no more than 85% utilized
     )
 
     print(f"\n  Constraints:")
@@ -111,7 +120,9 @@ def main():
     print(f"\n{'='*80}")
     print(f"  STAFFING SCHEDULE FOR {target_date}")
     print(f"{'='*80}")
-    print(f"\n{'Time':<8} {'Demand':<10} {'Agents':<10} {'Wait(s)':<10} {'SLA%':<10} {'Occupancy':<12} {'Feasible':<10}")
+    print(
+        f"\n{'Time':<8} {'Demand':<10} {'Agents':<10} {'Wait(s)':<10} {'SLA%':<10} {'Occupancy':<12} {'Feasible':<10}"
+    )
     print("-" * 70)
 
     total_agents = 0

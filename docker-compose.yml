@@ -1,5 +1,6 @@
 services:
   backend:
+    container_name: workforce-backend
     build:
       context: .                               # project root — Dockerfile can access all files
       dockerfile: src/main_module/api/Dockerfile
@@ -13,6 +14,8 @@ services:
       - PYTHONUNBUFFERED=1                     # flush print() immediately so logs appear in docker compose logs
 
   frontend:
+    depends_on:
+      - backend
     build:
       context: ./src/main_module/visualization
       dockerfile: DockerFile

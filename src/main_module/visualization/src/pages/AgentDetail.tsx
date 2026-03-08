@@ -27,7 +27,7 @@ interface AgentProfile {
   mean_hold: number;
 }
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export default function AgentDetail() {
   const { agentName } = useParams<{ agentName: string }>();
@@ -231,13 +231,13 @@ export default function AgentDetail() {
                 <p className="text-base font-medium text-slate-900 dark:text-white">{agent.business_segment}</p>
               </div>
               <div>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Composite Score</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">Resolution Rate</p>
                 <p className={`text-base font-bold ${
-                  agent.composite_score >= 80 ? 'text-green-600 dark:text-green-400' :
-                  agent.composite_score >= 60 ? 'text-yellow-600 dark:text-yellow-400' :
+                  agent.resolution_rate >= 90 ? 'text-green-600 dark:text-green-400' :
+                  agent.resolution_rate >= 80 ? 'text-yellow-600 dark:text-yellow-400' :
                   'text-red-600 dark:text-red-400'
                 }`}>
-                  {agent.composite_score.toFixed(1)}
+                  {agent.resolution_rate.toFixed(1)}%
                 </p>
               </div>
               <div>
