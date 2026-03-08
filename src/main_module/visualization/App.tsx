@@ -7,7 +7,7 @@ import { Smile, Clock, Target, TrendingUp } from 'lucide-react';
 export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-      
+
       <div className="transition-all duration-300">
         <main className="p-6 md:p-8 max-w-7xl mx-auto space-y-8">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
@@ -18,33 +18,33 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <MetricCard 
-              title="Customer Satisfaction (CSAT)" 
-              value="4.8/5.0" 
-              change="+12%" 
+            <MetricCard
+              title="Customer Satisfaction (CSAT)"
+              value="4.8/5.0"
+              change="+12%"
               isPositive={true}
-              icon={Smile} 
+              icon={Smile}
             />
-            <MetricCard 
-              title="Service Level (SLA)" 
-              value="94.2%" 
-              change="+2.4%" 
+            <MetricCard
+              title="Service Level (SLA)"
+              value="94.2%"
+              change="+2.4%"
               isPositive={true}
-              icon={Target} 
+              icon={Target}
             />
-            <MetricCard 
-              title="Avg. Waiting Time" 
-              value="45s" 
-              change="-8s" 
+            <MetricCard
+              title="Avg. Waiting Time"
+              value="45s"
+              change="-8s"
               isPositive={true}
-              icon={Clock} 
+              icon={Clock}
             />
-            <MetricCard 
-              title="Total Calls Processed" 
-              value="12,450" 
-              change="+5.1%" 
+            <MetricCard
+              title="Total Calls Processed"
+              value="12,450"
+              change="+5.1%"
               isPositive={true}
-              icon={TrendingUp} 
+              icon={TrendingUp}
             />
           </div>
 
@@ -52,7 +52,7 @@ export default function App() {
             <div className="lg:col-span-2 min-w-0">
               <DemandChart />
             </div>
-            
+
             <div className="h-full min-w-0">
               <SimulationPanel />
             </div>

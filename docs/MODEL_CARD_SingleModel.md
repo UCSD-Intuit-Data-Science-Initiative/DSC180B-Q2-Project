@@ -56,7 +56,7 @@ The Call Demand Forecaster is a machine learning model designed to predict call 
 ### Intended Usage
 - **Primary Use:** Predict call volume for workforce planning
 - **Users:** Call center managers, workforce analysts
-- **Applications:** 
+- **Applications:**
   - Daily staffing schedules
   - Real-time demand monitoring
   - Capacity planning
