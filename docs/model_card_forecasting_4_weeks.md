@@ -14,14 +14,14 @@
 
 ## Training Data
 * **Dataset:** Historical parquet data (`dataset_1_call_related.parquet`).
-* **Preprocessing & Cleansing:** * Data is aggregated from raw timestamps into 30-minute frequency intervals. 
+* **Preprocessing & Cleansing:** * Data is aggregated from raw timestamps into 30-minute frequency intervals.
   * **Known Anomaly Handling:** A massive historical data corruption/outage spanning the entirety of **August 29, 2025** (00:00:00 to 23:59:59) is explicitly masked with `NaN` and smoothed using time-based interpolation to prevent training bias.
   * The first 4 weeks of the dataset are dropped during training to accommodate the 4-week lag feature "warm-up" period.
 
 ## Features
 The models rely on engineered features representing time, seasonality, and recent system memory:
 * **Cyclical Time:** Sine and cosine transformations of hour-of-day and day-of-week.
-* **Calendar Flags:** Month, week of year, January flag. 
+* **Calendar Flags:** Month, week of year, January flag.
 * **Holiday Split:** Calendar events are divided into `is_minor_holiday` (standard federal holidays) and `is_major_holiday` (center closed/near-zero volume days like Christmas and Thanksgiving).
 * **Domain-Specific (Tax):** Days remaining until Tax Day (April 15), active tax season flag (Jan-April 15), and a post-tax drop flag (30 days following tax day).
 * **Lags & Memory:** 4-week exact lag (`lag_4weeks`), 4-week rolling average trend (`trend_4w`), and 4-week rolling maximum (`max_4w`).
@@ -41,7 +41,7 @@ Model performance was evaluated using a dual-metric approach during development 
   * **WMAPE:** 11.34%
   * **R-Squared:** 0.974
 
-* **Ensemble Strategy:** The baseline prediction is a 50/50 unweighted average of the Random Forest and Gradient Boosting predictions. 
+* **Ensemble Strategy:** The baseline prediction is a 50/50 unweighted average of the Random Forest and Gradient Boosting predictions.
 * **Business Logic Overrides:** If the forecast falls on an `is_major_holiday`, the ML prediction is discarded and overwritten with the historical average for that specific date and time interval from the training data. The final output is rounded to the nearest integer.
 
 ## Caveats and Recommendations
