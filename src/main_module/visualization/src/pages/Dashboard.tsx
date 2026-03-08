@@ -5,7 +5,7 @@ import { DemandForecastChart } from '../components/DemandChart';
 import { Clock, Target, TrendingUp, Trophy, ArrowRight, Phone, Calendar, CalendarClock, Loader2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { ThemeToggle } from '../components/ThemeToggle';
-import { fetchMetrics, DayMetrics } from '../lib/api';
+import { fetchMetrics, fetchApi, DayMetrics } from '../lib/api';
 
 interface TopAgent {
   expert_id: string;
@@ -69,6 +69,8 @@ function getDailyBreakdownData(date: Date) {
 export default function Dashboard() {
   const [selectedDayVolume, setSelectedDayVolume] = useState<number | undefined>(undefined);
   const [metrics, setMetrics] = useState<DayMetrics | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(true);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
   const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
 
@@ -94,19 +96,26 @@ export default function Dashboard() {
   const [selectedDay, setSelectedDay] = useState(new Date());
 
 
-  // Fetch real metrics from backend whenever selected day changes
   useEffect(() => {
+    let cancelled = false;
+    setMetricsLoading(true);
+    setMetricsError(null);
     fetchMetrics(selectedDay)
-      .then(setMetrics)
-      .catch(console.error);
+      .then((m) => { if (!cancelled) setMetrics(m); })
+      .catch((err) => {
+        if (!cancelled) {
+          setMetricsError(err instanceof Error ? err.message : 'Failed to load metrics');
+        }
+      })
+      .finally(() => { if (!cancelled) setMetricsLoading(false); });
+    return () => { cancelled = true; };
   }, [selectedDay]);
 
-  // Fetch top performing agents
   useEffect(() => {
     const fetchTopAgents = async () => {
       try {
         setAgentsLoading(true);
-        const response = await fetch(`${API_BASE}/api/agents?n=4&sort_by=resolution_rate`);
+        const response = await fetchApi('/api/agents?n=5&sort_by=composite_score');
         if (response.ok) {
           const data = await response.json();
           setTopAgents(data);
@@ -612,11 +621,17 @@ export default function Dashboard() {
                    </div>
                  </div>
 
+                 {metricsError && (
+                   <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                     <p className="text-amber-800 dark:text-amber-200 text-sm">{metricsError}</p>
+                   </div>
+                 )}
+
                  {/* Metrics Grid */}
                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <MetricCard
                       title="Service Level (SLA)"
-                      value={weeklyMetrics.isCurrentWeek ? (metrics ? `${metrics.avg_sla_compliance.toFixed(1)}%` : '—') : weeklyMetrics.sla}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metricsError ? 'Error' : metrics ? `${metrics.avg_sla_compliance.toFixed(1)}%` : '—') : weeklyMetrics.sla}
                       change={weeklyMetrics.slaChange}
                       isPositive={weeklyMetrics.slaPositive}
                       icon={Target}
@@ -625,7 +640,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Avg. Waiting Time"
-                      value={weeklyMetrics.isCurrentWeek ? (metrics ? `${Math.round(metrics.avg_wait_time)}s` : '—') : weeklyMetrics.waitTime}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metricsError ? 'Error' : metrics ? `${Math.round(metrics.avg_wait_time)}s` : '—') : weeklyMetrics.waitTime}
                       change={weeklyMetrics.waitChange}
                       isPositive={weeklyMetrics.waitPositive}
                       icon={Clock}
@@ -634,7 +649,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Avg. Agent Occupancy"
-                      value={weeklyMetrics.isCurrentWeek ? (metrics ? `${metrics.avg_occupancy.toFixed(1)}%` : '—') : weeklyMetrics.occupancy}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metricsError ? 'Error' : metrics ? `${metrics.avg_occupancy.toFixed(1)}%` : '—') : weeklyMetrics.occupancy}
                       change={weeklyMetrics.occupancyChange}
                       isPositive={weeklyMetrics.occupancyPositive}
                       icon={TrendingUp}
@@ -643,7 +658,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Total Calls Processed"
-                      value={weeklyMetrics.isCurrentWeek ? (metrics ? metrics.total_calls.toLocaleString() : '—') : weeklyMetrics.totalCalls}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metricsError ? 'Error' : metrics ? metrics.total_calls.toLocaleString() : '—') : weeklyMetrics.totalCalls}
                       change={weeklyMetrics.callsChange}
                       isPositive={weeklyMetrics.callsPositive}
                       icon={Phone}
@@ -706,12 +721,13 @@ export default function Dashboard() {
                       <th className="px-6 py-4">Average Handle Time</th>
                       <th className="px-6 py-4">Utilization Rate</th>
                       <th className="px-6 py-4">Resolution Rate</th>
+                      <th className="px-6 py-4">Composite Score</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100/50 dark:divide-slate-700/50">
                     {agentsLoading ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-8 text-center">
+                        <td colSpan={7} className="px-6 py-8 text-center">
                           <div className="flex items-center justify-center space-x-2 text-slate-500 dark:text-slate-400">
                             <Loader2 className="w-5 h-5 animate-spin" />
                             <span>Loading agents...</span>
@@ -720,7 +736,7 @@ export default function Dashboard() {
                       </tr>
                     ) : topAgents.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">
+                        <td colSpan={7} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">
                           No agent data available
                         </td>
                       </tr>
@@ -750,6 +766,15 @@ export default function Dashboard() {
                               'text-slate-900 dark:text-white'
                             }`}>
                               {agent.resolution_rate.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`font-bold ${
+                              agent.composite_score >= 80 ? 'text-green-600 dark:text-green-400' :
+                              agent.composite_score >= 60 ? 'text-blue-600 dark:text-blue-400' :
+                              'text-slate-900 dark:text-white'
+                            }`}>
+                              {agent.composite_score.toFixed(1)}
                             </span>
                           </td>
                         </tr>
