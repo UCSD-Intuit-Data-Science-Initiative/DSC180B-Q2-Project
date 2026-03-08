@@ -11,18 +11,29 @@ On the supply planning side, the challenge is about optimization under constrain
 
 ## Getting Started
 
-Only [Docker Desktop](https://www.docker.com/products/docker-desktop/) is required to run the full stack.
+### Option A: Docker (recommended)
+
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 
 ```bash
 git clone <repo>
 cd <repo>
-make backend-up     # start FastAPI backend (trains ML model on startup)
+make backend-up     # start FastAPI backend (loads model on startup)
 make frontend-up    # start React dashboard
 ```
 
 Then open:
 - **Dashboard:** http://localhost:3000
 - **API docs:** http://localhost:8000/docs
+
+### Option B: Local (no Docker)
+
+Use this if the Docker proxy causes data to stay stuck loading.
+
+1. Install dependencies: `make install` (Poetry) and `cd src/main_module/visualization && npm install --legacy-peer-deps`
+2. In one terminal: `make backend-local` (starts backend on port 8000)
+3. In another terminal: `make frontend-local` (starts frontend on port 3000, talks to backend directly)
+4. Open http://localhost:3000
 
 ```bash
 make install        # installs dependencies & pre-commit hooks (requires Poetry 1.8+)

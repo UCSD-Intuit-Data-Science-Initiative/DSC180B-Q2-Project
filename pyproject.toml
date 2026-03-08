@@ -8,6 +8,8 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
+    "fastapi (>=0.115.0)",
+    "uvicorn[standard] (>=0.30.0)",
     "numpy (>=1.26,<2.0)",
     "pandas (>=2.2,<3.0)",
     "matplotlib (>=3.8,<4.0)",
@@ -45,6 +47,7 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 79
 target-version = "py311"
+extend-exclude = ["scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

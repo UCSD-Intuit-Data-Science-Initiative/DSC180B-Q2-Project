@@ -15,7 +15,11 @@ _SRC = _ROOT / "src"
 sys.path.insert(0, str(_SRC))
 sys.path.insert(0, SCRIPT_DIR)  # keeps demand_forecasting_model importable
 
-from main_module.workforce import CallCenterEmulator, EmulatorConfig, HybridForecaster
+from main_module.workforce import (
+    CallCenterEmulator,
+    EmulatorConfig,
+    HybridForecaster,
+)
 from demand_forecasting_model import CallDemandForecaster
 from staffing_optimizer import (
     OptimizationThresholds,
@@ -25,6 +29,7 @@ from staffing_optimizer import (
 
 try:
     from business_analytics import BusinessAnalytics
+
     _ANALYTICS_AVAILABLE = True
 except ImportError:
     _ANALYTICS_AVAILABLE = False
@@ -229,7 +234,10 @@ def main():
         model_type = st.radio(
             "Forecasting Model",
             ["Hybrid (Recommended)", "Single Model"],
-            index=0 if st.session_state.applied_config["model_type"] == "Hybrid (Recommended)" else 1,
+            index=0
+            if st.session_state.applied_config["model_type"]
+            == "Hybrid (Recommended)"
+            else 1,
             help="Hybrid model uses short-term model for <7 days and long-term model for >=7 days",
         )
 
@@ -259,27 +267,63 @@ def main():
         )
 
         st.subheader("🎯 Optimization Thresholds")
-        max_wait_input = st.slider("Max Avg Wait Time (s)", 15, 180, st.session_state.applied_config["max_wait"], 5)
-        min_sla_input = st.slider("Min SLA Compliance (%)", 50, 99, st.session_state.applied_config["min_sla"], 5)
-        max_util_input = st.slider("Max Utilization (%)", 50, 99, st.session_state.applied_config["max_util"], 5)
-        max_abandon_input = st.slider("Max Abandonment Rate (%)", 1, 20, st.session_state.applied_config["max_abandon"], 1)
+        max_wait_input = st.slider(
+            "Max Avg Wait Time (s)",
+            15,
+            180,
+            st.session_state.applied_config["max_wait"],
+            5,
+        )
+        min_sla_input = st.slider(
+            "Min SLA Compliance (%)",
+            50,
+            99,
+            st.session_state.applied_config["min_sla"],
+            5,
+        )
+        max_util_input = st.slider(
+            "Max Utilization (%)",
+            50,
+            99,
+            st.session_state.applied_config["max_util"],
+            5,
+        )
+        max_abandon_input = st.slider(
+            "Max Abandonment Rate (%)",
+            1,
+            20,
+            st.session_state.applied_config["max_abandon"],
+            1,
+        )
 
         st.subheader("👥 Shift Constraints")
         min_experts_input = st.number_input(
-            "Min Experts per Interval", value=st.session_state.applied_config["min_experts"], min_value=0, max_value=10
+            "Min Experts per Interval",
+            value=st.session_state.applied_config["min_experts"],
+            min_value=0,
+            max_value=10,
         )
         max_experts_input = st.number_input(
-            "Max Experts per Interval", value=st.session_state.applied_config["max_experts"], min_value=10, max_value=100
+            "Max Experts per Interval",
+            value=st.session_state.applied_config["max_experts"],
+            min_value=10,
+            max_value=100,
         )
         max_changes_input = st.number_input(
-            "Max Shift Changes per Day", value=st.session_state.applied_config["max_changes"], min_value=1, max_value=48
+            "Max Shift Changes per Day",
+            value=st.session_state.applied_config["max_changes"],
+            min_value=1,
+            max_value=48,
         )
 
         st.subheader("⚙️ Emulator Settings")
         emulator_model_input = st.selectbox(
             "Queuing Model",
             ["Erlang-A (Recommended)", "Erlang-C"],
-            index=0 if st.session_state.applied_config["emulator_model"] == "Erlang-A (Recommended)" else 1,
+            index=0
+            if st.session_state.applied_config["emulator_model"]
+            == "Erlang-A (Recommended)"
+            else 1,
             help="Erlang-A models customer abandonment realistically. Erlang-C assumes infinite patience.",
         )
         avg_patience_input = st.slider(
@@ -291,7 +335,9 @@ def main():
             help="Average time a customer will wait before abandoning (Erlang-A only)",
         )
 
-        submitted = st.form_submit_button("✅ Apply Changes", type="primary", use_container_width=True)
+        submitted = st.form_submit_button(
+            "✅ Apply Changes", type="primary", use_container_width=True
+        )
 
         if submitted:
             st.session_state.applied_config = {
@@ -311,7 +357,9 @@ def main():
             }
             st.rerun()
 
-    use_hybrid = st.session_state.applied_config["model_type"] == "Hybrid (Recommended)"
+    use_hybrid = (
+        st.session_state.applied_config["model_type"] == "Hybrid (Recommended)"
+    )
     selected_date = st.session_state.applied_config["selected_date"]
     avg_handle_time = st.session_state.applied_config["avg_handle_time"]
     sla_threshold = st.session_state.applied_config["sla_threshold"]
@@ -322,7 +370,11 @@ def main():
     min_experts = st.session_state.applied_config["min_experts"]
     max_experts = st.session_state.applied_config["max_experts"]
     max_changes = st.session_state.applied_config["max_changes"]
-    emulator_model_key = "erlang_a" if "Erlang-A" in st.session_state.applied_config["emulator_model"] else "erlang_c"
+    emulator_model_key = (
+        "erlang_a"
+        if "Erlang-A" in st.session_state.applied_config["emulator_model"]
+        else "erlang_c"
+    )
     avg_patience = st.session_state.applied_config["avg_patience"]
 
     if use_hybrid:
@@ -676,7 +728,13 @@ def main():
 
         @st.fragment
         def whatif_analysis_fragment():
-            fixed_experts = st.slider("Number of Experts (constant)", 1, 30, 8, key="whatif_experts_slider")
+            fixed_experts = st.slider(
+                "Number of Experts (constant)",
+                1,
+                30,
+                8,
+                key="whatif_experts_slider",
+            )
 
             simulation = emulator.simulate_day(
                 [fixed_experts] * len(demand_df),
@@ -695,8 +753,12 @@ def main():
             col2.metric(
                 "SLA Compliance", f"{sim_summary['avg_sla_compliance']:.1f}%"
             )
-            col3.metric("Utilization", f"{sim_summary['avg_utilization']:.1f}%")
-            col4.metric("Abandonment", f"{sim_summary['abandonment_rate']:.1f}%")
+            col3.metric(
+                "Utilization", f"{sim_summary['avg_utilization']:.1f}%"
+            )
+            col4.metric(
+                "Abandonment", f"{sim_summary['abandonment_rate']:.1f}%"
+            )
 
             meets_all = (
                 sim_summary["avg_wait_time"] <= max_wait
@@ -708,7 +770,9 @@ def main():
             if meets_all:
                 st.success(f"✅ {fixed_experts} experts meets all targets!")
             else:
-                st.warning(f"⚠️ {fixed_experts} experts does NOT meet all targets.")
+                st.warning(
+                    f"⚠️ {fixed_experts} experts does NOT meet all targets."
+                )
 
             st.markdown("---")
 
@@ -742,7 +806,12 @@ def main():
             fig = make_subplots(
                 rows=2,
                 cols=2,
-                subplot_titles=("Wait Time", "SLA", "Utilization", "Abandonment"),
+                subplot_titles=(
+                    "Wait Time",
+                    "SLA",
+                    "Utilization",
+                    "Abandonment",
+                ),
             )
             fig.add_trace(
                 go.Scatter(
@@ -801,7 +870,9 @@ def main():
 
             st.subheader("Scenario Comparison Table")
             st.dataframe(
-                scenarios_df.round(2), use_container_width=True, hide_index=True
+                scenarios_df.round(2),
+                use_container_width=True,
+                hide_index=True,
             )
 
         whatif_analysis_fragment()

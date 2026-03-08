@@ -1,9 +1,9 @@
-import React, { useMemo, useState, useEffect } from 'react';
-import { ArrowLeft, User, Phone, Clock, TrendingUp, ArrowUp, ArrowDown, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowLeft, User, Phone, Clock, TrendingUp, ArrowUp, ArrowDown, Loader2, Info } from 'lucide-react';
 import { Link } from 'react-router';
 import { ThemeToggle } from '../components/ThemeToggle';
 
-type SortKey = 'name' | 'segment' | 'contacts' | 'aht' | 'utilization' | 'composite_score';
+type SortKey = 'name' | 'segment' | 'contacts' | 'aht' | 'utilization' | 'resolution_rate' | 'composite_score';
 type SortDirection = 'asc' | 'desc';
 
 interface SortConfig {
@@ -30,10 +30,10 @@ interface Agent {
   mean_occupancy: number;
 }
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export default function AllAgents() {
-  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'composite_score', direction: 'desc' });
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'resolution_rate', direction: 'desc' });
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +42,13 @@ export default function AllAgents() {
     const fetchAgents = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`${API_BASE}/api/agents?n=100&sort_by=composite_score`);
+        const asc = sortConfig.direction === 'asc';
+        const params = new URLSearchParams({
+          n: '300',
+          sort_by: sortConfig.key,
+          ascending: String(asc),
+        });
+        const response = await fetch(`${API_BASE}/api/agents?${params}`);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -58,29 +64,13 @@ export default function AllAgents() {
     };
 
     fetchAgents();
-  }, []);
+  }, [sortConfig]);
 
-  const sortedAgents = useMemo(() => {
-    return [...agents].sort((a, b) => {
-      let aValue: any = a[sortConfig.key as keyof Agent];
-      let bValue: any = b[sortConfig.key as keyof Agent];
+  const displayAgents = agents;
 
-      if (sortConfig.key === 'aht') {
-        aValue = a.aht_seconds;
-        bValue = b.aht_seconds;
-      }
-
-      if (aValue < bValue) {
-        return sortConfig.direction === 'asc' ? -1 : 1;
-      }
-      if (aValue > bValue) {
-        return sortConfig.direction === 'asc' ? 1 : -1;
-      }
-      return 0;
-    });
-  }, [agents, sortConfig]);
-
-  const handleSort = (key: SortKey) => {
+  const handleSort = (e: React.MouseEvent, key: SortKey) => {
+    e.preventDefault();
+    e.stopPropagation();
     setSortConfig(current => ({
       key,
       direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc'
@@ -88,8 +78,8 @@ export default function AllAgents() {
   };
 
   const SortIcon = ({ columnKey }: { columnKey: SortKey }) => {
-    if (sortConfig.key !== columnKey) return <div className="w-4 h-4" />;
-    return sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />;
+    if (sortConfig.key !== columnKey) return <span className="w-4 h-4 inline-block" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4 inline" /> : <ArrowDown className="w-4 h-4 inline" />;
   };
 
   const getSegmentColor = (segment: string) => {
@@ -146,7 +136,7 @@ export default function AllAgents() {
             <div>
               <h1 className="text-2xl font-bold text-slate-900 dark:text-white">All Agents</h1>
               <p className="text-slate-500 dark:text-slate-400 text-sm">
-                {agents.length} agents with real performance metrics. Click column headers to sort.
+                {agents.length} agents. Click any column header to sort.
               </p>
             </div>
           </div>
@@ -159,75 +149,76 @@ export default function AllAgents() {
           </div>
         )}
 
+        <div className="bg-slate-100 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+          <div className="flex items-start gap-2">
+            <Info className="w-5 h-5 text-slate-500 dark:text-slate-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Composite Score Formula</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                30% Resolution Rate + 20% First-Call Resolution + 20% Efficiency (handle time) + 15% Occupancy + 15% Volume. Each component is 0–100; composite is 0–100.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col h-[80vh]">
             <div className="overflow-auto flex-1 rounded-xl custom-scrollbar">
                 <table className="w-full text-left text-sm relative">
                     <thead className="bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 font-medium border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10 shadow-sm">
                         <tr>
-                            <th
-                              className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
-                              onClick={() => handleSort('name')}
-                            >
-                                <div className="flex items-center space-x-2">
+                            <th className="px-6 py-4">
+                                <button type="button" onClick={(e) => handleSort(e, 'name')} className="flex items-center space-x-2 w-full text-left font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none py-1 -my-1 rounded cursor-pointer bg-transparent border-0">
                                     <User className="w-4 h-4" />
                                     <span>Agent ID</span>
                                     <SortIcon columnKey="name" />
-                                </div>
+                                </button>
                             </th>
-                            <th
-                              className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
-                              onClick={() => handleSort('segment')}
-                            >
-                                <div className="flex items-center space-x-2">
+                            <th className="px-6 py-4">
+                                <button type="button" onClick={(e) => handleSort(e, 'segment')} className="flex items-center space-x-2 w-full text-left font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none py-1 -my-1 rounded cursor-pointer bg-transparent border-0">
                                     <TrendingUp className="w-4 h-4" />
                                     <span>Segment</span>
                                     <SortIcon columnKey="segment" />
-                                </div>
+                                </button>
                             </th>
-                            <th
-                              className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
-                              onClick={() => handleSort('contacts')}
-                            >
-                                <div className="flex items-center space-x-2">
+                            <th className="px-6 py-4">
+                                <button type="button" onClick={(e) => handleSort(e, 'contacts')} className="flex items-center space-x-2 w-full text-left font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none py-1 -my-1 rounded cursor-pointer bg-transparent border-0">
                                     <Phone className="w-4 h-4" />
                                     <span>Contacts</span>
                                     <SortIcon columnKey="contacts" />
-                                </div>
+                                </button>
                             </th>
-                            <th
-                              className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
-                              onClick={() => handleSort('aht')}
-                            >
-                                <div className="flex items-center space-x-2">
+                            <th className="px-6 py-4">
+                                <button type="button" onClick={(e) => handleSort(e, 'aht')} className="flex items-center space-x-2 w-full text-left font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none py-1 -my-1 rounded cursor-pointer bg-transparent border-0">
                                     <Clock className="w-4 h-4" />
                                     <span>Avg Handle Time</span>
                                     <SortIcon columnKey="aht" />
-                                </div>
+                                </button>
                             </th>
-                            <th
-                              className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
-                              onClick={() => handleSort('utilization')}
-                            >
-                                <div className="flex items-center space-x-2">
+                            <th className="px-6 py-4">
+                                <button type="button" onClick={(e) => handleSort(e, 'utilization')} className="flex items-center space-x-2 w-full text-left font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none py-1 -my-1 rounded cursor-pointer bg-transparent border-0">
                                     <TrendingUp className="w-4 h-4" />
                                     <span>Utilization</span>
                                     <SortIcon columnKey="utilization" />
-                                </div>
+                                </button>
                             </th>
-                            <th
-                              className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
-                              onClick={() => handleSort('composite_score')}
-                            >
-                                <div className="flex items-center space-x-2">
+                            <th className="px-6 py-4">
+                                <button type="button" onClick={(e) => handleSort(e, 'resolution_rate')} className="flex items-center space-x-2 w-full text-left font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none py-1 -my-1 rounded cursor-pointer bg-transparent border-0">
                                     <TrendingUp className="w-4 h-4" />
-                                    <span>Score</span>
+                                    <span>Resolution Rate</span>
+                                    <SortIcon columnKey="resolution_rate" />
+                                </button>
+                            </th>
+                            <th className="px-6 py-4">
+                                <button type="button" onClick={(e) => handleSort(e, 'composite_score')} className="flex items-center space-x-2 w-full text-left font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none py-1 -my-1 rounded cursor-pointer bg-transparent border-0">
+                                    <TrendingUp className="w-4 h-4" />
+                                    <span>Composite</span>
                                     <SortIcon columnKey="composite_score" />
-                                </div>
+                                </button>
                             </th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {sortedAgents.map((agent) => (
+                        {displayAgents.map((agent) => (
                             <tr key={agent.expert_id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer">
                                 <td className="px-6 py-4">
                                     <Link
@@ -247,12 +238,15 @@ export default function AllAgents() {
                                 <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.utilization.toFixed(1)}%</td>
                                 <td className="px-6 py-4">
                                     <span className={`font-medium ${
-                                        agent.composite_score >= 80 ? 'text-green-600 dark:text-green-400' :
-                                        agent.composite_score >= 60 ? 'text-yellow-600 dark:text-yellow-400' :
+                                        agent.resolution_rate >= 90 ? 'text-green-600 dark:text-green-400' :
+                                        agent.resolution_rate >= 80 ? 'text-yellow-600 dark:text-yellow-400' :
                                         'text-red-600 dark:text-red-400'
                                     }`}>
-                                        {agent.composite_score.toFixed(1)}
+                                        {agent.resolution_rate.toFixed(1)}%
                                     </span>
+                                </td>
+                                <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                                    {agent.composite_score.toFixed(1)}
                                 </td>
                             </tr>
                         ))}

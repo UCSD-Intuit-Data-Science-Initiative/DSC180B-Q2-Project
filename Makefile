@@ -100,6 +100,13 @@ backend-logs: ## Tail backend dev server logs
 backend-open: ## Open the backend API docs in your default browser
 	@ python3 -c "import webbrowser; webbrowser.open('http://localhost:8000/docs')"
 
+backend-local: ## Run backend locally (no Docker); use if Docker proxy fails
+	PYTHONPATH=src $(POETRY) run python -m uvicorn main_module.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+##@Frontend (local)
+frontend-local: ## Run frontend locally (no Docker); requires backend first; use if Docker proxy fails
+	cd src/main_module/visualization && VITE_API_URL=http://localhost:8000 npm run dev
+
 ##@Maintenance
 clean: ## Remove caches and build artifacts
 	@ $(MAKE) clean-pyc

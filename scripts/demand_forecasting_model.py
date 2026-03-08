@@ -453,11 +453,17 @@ class CallDemandForecaster:
 
         issues = []
 
-        train_months = train_df["month"].value_counts(normalize=True).sort_index()
-        test_months = test_df["month"].value_counts(normalize=True).sort_index()
+        train_months = (
+            train_df["month"].value_counts(normalize=True).sort_index()
+        )
+        test_months = (
+            test_df["month"].value_counts(normalize=True).sort_index()
+        )
 
         print("\n  Monthly Distribution:")
-        print(f"  {'Month':<8} {'Train %':<12} {'Test %':<12} {'Diff':<10} {'Status'}")
+        print(
+            f"  {'Month':<8} {'Train %':<12} {'Test %':<12} {'Diff':<10} {'Status'}"
+        )
         print("  " + "-" * 55)
 
         for month in range(1, 13):
@@ -467,13 +473,21 @@ class CallDemandForecaster:
             status = "✅" if diff < 3 else "⚠️"
             if diff >= 3:
                 issues.append(f"Month {month}: {diff:.1f}% difference")
-            print(f"  {month:<8} {train_pct:<12.1f} {test_pct:<12.1f} {diff:<10.1f} {status}")
+            print(
+                f"  {month:<8} {train_pct:<12.1f} {test_pct:<12.1f} {diff:<10.1f} {status}"
+            )
 
-        train_dow = train_df["day_of_week"].value_counts(normalize=True).sort_index()
-        test_dow = test_df["day_of_week"].value_counts(normalize=True).sort_index()
+        train_dow = (
+            train_df["day_of_week"].value_counts(normalize=True).sort_index()
+        )
+        test_dow = (
+            test_df["day_of_week"].value_counts(normalize=True).sort_index()
+        )
 
         print("\n  Day of Week Distribution:")
-        print(f"  {'Day':<8} {'Train %':<12} {'Test %':<12} {'Diff':<10} {'Status'}")
+        print(
+            f"  {'Day':<8} {'Train %':<12} {'Test %':<12} {'Diff':<10} {'Status'}"
+        )
         print("  " + "-" * 55)
 
         dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri"]
@@ -484,27 +498,35 @@ class CallDemandForecaster:
             status = "✅" if diff < 2 else "⚠️"
             if diff >= 2:
                 issues.append(f"{dow_names[dow]}: {diff:.1f}% difference")
-            print(f"  {dow_names[dow]:<8} {train_pct:<12.1f} {test_pct:<12.1f} {diff:<10.1f} {status}")
+            print(
+                f"  {dow_names[dow]:<8} {train_pct:<12.1f} {test_pct:<12.1f} {diff:<10.1f} {status}"
+            )
 
         train_peak = (train_df["is_tax_season"] == 1).mean() * 100
         test_peak = (test_df["is_tax_season"] == 1).mean() * 100
         peak_diff = abs(train_peak - test_peak)
 
         print("\n  Seasonality Distribution:")
-        print(f"  {'Feature':<20} {'Train %':<12} {'Test %':<12} {'Diff':<10} {'Status'}")
+        print(
+            f"  {'Feature':<20} {'Train %':<12} {'Test %':<12} {'Diff':<10} {'Status'}"
+        )
         print("  " + "-" * 65)
 
         status = "✅" if peak_diff < 5 else "⚠️"
         if peak_diff >= 5:
             issues.append(f"Tax season: {peak_diff:.1f}% difference")
-        print(f"  {'Tax Season':<20} {train_peak:<12.1f} {test_peak:<12.1f} {peak_diff:<10.1f} {status}")
+        print(
+            f"  {'Tax Season':<20} {train_peak:<12.1f} {test_peak:<12.1f} {peak_diff:<10.1f} {status}"
+        )
 
         if "is_holiday" in train_df.columns:
             train_holiday = (train_df["is_holiday"] == 1).mean() * 100
             test_holiday = (test_df["is_holiday"] == 1).mean() * 100
             holiday_diff = abs(train_holiday - test_holiday)
             status = "✅" if holiday_diff < 2 else "⚠️"
-            print(f"  {'Holiday':<20} {train_holiday:<12.1f} {test_holiday:<12.1f} {holiday_diff:<10.1f} {status}")
+            print(
+                f"  {'Holiday':<20} {train_holiday:<12.1f} {test_holiday:<12.1f} {holiday_diff:<10.1f} {status}"
+            )
 
         train_mean = train_y.mean()
         test_mean = test_y.mean()
@@ -513,24 +535,32 @@ class CallDemandForecaster:
         mean_diff_pct = abs(train_mean - test_mean) / train_mean * 100
 
         print("\n  Call Volume Statistics:")
-        print(f"  {'Metric':<20} {'Train':<15} {'Test':<15} {'Diff %':<10} {'Status'}")
+        print(
+            f"  {'Metric':<20} {'Train':<15} {'Test':<15} {'Diff %':<10} {'Status'}"
+        )
         print("  " + "-" * 65)
 
         status = "✅" if mean_diff_pct < 10 else "⚠️"
         if mean_diff_pct >= 10:
             issues.append(f"Mean calls: {mean_diff_pct:.1f}% difference")
-        print(f"  {'Mean calls/interval':<20} {train_mean:<15.2f} {test_mean:<15.2f} {mean_diff_pct:<10.1f} {status}")
+        print(
+            f"  {'Mean calls/interval':<20} {train_mean:<15.2f} {test_mean:<15.2f} {mean_diff_pct:<10.1f} {status}"
+        )
 
         std_diff_pct = abs(train_std - test_std) / train_std * 100
         status = "✅" if std_diff_pct < 15 else "⚠️"
-        print(f"  {'Std calls/interval':<20} {train_std:<15.2f} {test_std:<15.2f} {std_diff_pct:<10.1f} {status}")
+        print(
+            f"  {'Std calls/interval':<20} {train_std:<15.2f} {test_std:<15.2f} {std_diff_pct:<10.1f} {status}"
+        )
 
         print("\n" + "-" * 70)
         if len(issues) == 0:
             print("  ✅ DISTRIBUTION VERIFICATION PASSED")
             print("  Training and testing sets have similar distributions.")
         else:
-            print(f"  ⚠️  DISTRIBUTION VERIFICATION: {len(issues)} potential issue(s)")
+            print(
+                f"  ⚠️  DISTRIBUTION VERIFICATION: {len(issues)} potential issue(s)"
+            )
             print("  Differences found (may affect model generalization):")
             for issue in issues:
                 print(f"    - {issue}")
@@ -570,7 +600,9 @@ class CallDemandForecaster:
         test_dates = test_feature_df["interval_start"]
 
         print("\n" + "=" * 70)
-        print(f"DATA SPLIT: Year-Based (Train on <{test_year}, Test on {test_year})")
+        print(
+            f"DATA SPLIT: Year-Based (Train on <{test_year}, Test on {test_year})"
+        )
         print("=" * 70)
         print(
             f"  Training: {train_dates.min().strftime('%Y-%m-%d')} to {train_dates.max().strftime('%Y-%m-%d')} ({len(X_train):,} samples)"
@@ -587,7 +619,9 @@ class CallDemandForecaster:
         for year, count in test_years.items():
             print(f"    {year} (test):  {count:,}")
 
-        self._verify_distribution(train_feature_df, test_feature_df, y_train, y_test)
+        self._verify_distribution(
+            train_feature_df, test_feature_df, y_train, y_test
+        )
 
         print("Scaling features...")
         X_train_scaled = self.scaler.fit_transform(X_train)
