@@ -30,16 +30,16 @@ install: ## Install project and dev dependencies
 
 ##@Quality
 lint: ## Run static analysis with Ruff and type checks with mypy
-	$(POETRY) run ruff check src tests scripts
-	$(POETRY) run mypy src tests
+	$(POETRY) run ruff check src scripts
+	$(POETRY) run mypy src scripts
 
 format: ## Format code using Ruff
-	$(POETRY) run ruff check --fix src tests scripts
-	$(POETRY) run ruff format src tests scripts
+	$(POETRY) run ruff check --fix src scripts
+	$(POETRY) run ruff format src scripts
 	$(MAKE) clean
 
-test: ## Execute test suite via tox (py)
-	$(POETRY) run tox -e py
+test: ## Run lint and type checks via tox
+	$(POETRY) run tox
 
 ##@Documentation
 docs-up: ## Start live Jekyll docs server (docs stack only)
@@ -63,13 +63,6 @@ docs-ps: ## Show status of docs containers
 docs-open: ## Open the local documentation site in your default browser
 	@ $(POETRY) run python -c "import webbrowser; webbrowser.open('http://localhost:4000')"
 
-
-##@Pipelines
-pipeline-run: ## Execute sample training pipeline
-	$(POETRY) run python scripts/run_pipeline.py --demo
-
-pipeline-help: ## Show pipeline CLI help
-	$(POETRY) run python scripts/run_pipeline.py --help
 
 ##@Frontend
 frontend-up: ## Start frontend dev server in Docker

@@ -67,6 +67,7 @@ future_df["Call_Volume"] = np.nan
 
 df_combined = pd.concat([df_agg, future_df])
 
+
 # ==============================================================================
 # 3. DYNAMIC FEATURE ENGINEERING
 # ==============================================================================
@@ -77,9 +78,15 @@ def create_features(data, weeks_ahead):
     holidays = cal.holidays(start=df.index.min(), end=df.index.max())
 
     major_holidays = [
-        "2024-01-01", "2025-01-01", "2026-01-01",
-        "2024-11-28", "2025-11-27", "2026-11-26",
-        "2024-12-25", "2025-12-25", "2026-12-25",
+        "2024-01-01",
+        "2025-01-01",
+        "2026-01-01",
+        "2024-11-28",
+        "2025-11-27",
+        "2026-11-26",
+        "2024-12-25",
+        "2025-12-25",
+        "2026-12-25",
     ]
     major_holidays = pd.to_datetime(major_holidays)
 
@@ -102,14 +109,20 @@ def create_features(data, weeks_ahead):
     tax_days = pd.to_datetime(df.index.year.astype(str) + "-04-15")
     df["days_to_tax_day"] = (tax_days - df.index.normalize()).days
     df["is_tax_season"] = ((df["month"] <= 4) & (df["days_to_tax_day"] >= 0)).astype(int)
-    df["is_post_tax_drop"] = ((df["days_to_tax_day"] < 0) & (df["days_to_tax_day"] > -31)).astype(int)
+    df["is_post_tax_drop"] = ((df["days_to_tax_day"] < 0) & (df["days_to_tax_day"] > -31)).astype(
+        int
+    )
 
     lag_intervals = weeks_ahead * 7 * 48
     rolling_window = weeks_ahead * 7 * 48
 
     df[f"lag_{weeks_ahead}weeks"] = df["Call_Volume"].shift(lag_intervals)
-    df[f"trend_{weeks_ahead}w"] = df["Call_Volume"].shift(lag_intervals).rolling(window=rolling_window).mean()
-    df[f"max_{weeks_ahead}w"] = df["Call_Volume"].shift(lag_intervals).rolling(window=rolling_window).max()
+    df[f"trend_{weeks_ahead}w"] = (
+        df["Call_Volume"].shift(lag_intervals).rolling(window=rolling_window).mean()
+    )
+    df[f"max_{weeks_ahead}w"] = (
+        df["Call_Volume"].shift(lag_intervals).rolling(window=rolling_window).max()
+    )
 
     return df
 
@@ -127,11 +140,21 @@ train_data = df_features.dropna(subset=["Call_Volume", lag_feat, trend_feat])
 predict_data = df_features[df_features["Call_Volume"].isna()].copy()
 
 features = [
-    "hour_sin", "hour_cos", "day_sin", "day_cos",
-    "month", "weekofyear", "is_january",
-    "is_minor_holiday", "is_major_holiday",
-    "days_to_tax_day", "is_tax_season", "is_post_tax_drop",
-    lag_feat, trend_feat, max_feat,
+    "hour_sin",
+    "hour_cos",
+    "day_sin",
+    "day_cos",
+    "month",
+    "weekofyear",
+    "is_january",
+    "is_minor_holiday",
+    "is_major_holiday",
+    "days_to_tax_day",
+    "is_tax_season",
+    "is_post_tax_drop",
+    lag_feat,
+    trend_feat,
+    max_feat,
 ]
 
 print(f"Training set: {len(train_data)} rows, {len(features)} features")
@@ -171,9 +194,17 @@ gb_model.fit(train_data[features], train_data["Call_Volume"])
 # ==============================================================================
 print("Building holiday profiles...")
 historical_holidays = train_data[train_data["is_major_holiday"] == 1]
-holiday_profiles = historical_holidays.groupby(
-    [historical_holidays.index.month, historical_holidays.index.day, historical_holidays.index.time]
-)["Call_Volume"].mean().to_dict()
+holiday_profiles = (
+    historical_holidays.groupby(
+        [
+            historical_holidays.index.month,
+            historical_holidays.index.day,
+            historical_holidays.index.time,
+        ]
+    )["Call_Volume"]
+    .mean()
+    .to_dict()
+)
 print(f"  {len(holiday_profiles)} holiday (month, day, time) entries")
 
 # ==============================================================================
@@ -181,8 +212,8 @@ print(f"  {len(holiday_profiles)} holiday (month, day, time) entries")
 # ==============================================================================
 print("Building daily std dev lookup...")
 df_agg_std = df_agg.copy()
-df_agg_std["date_only"] = df_agg_std.index.normalize()
-df_agg_std["dow_day"] = df_agg_std.index.dayofweek
+df_agg_std["date_only"] = pd.DatetimeIndex(df_agg_std.index).normalize()
+df_agg_std["dow_day"] = pd.DatetimeIndex(df_agg_std.index).dayofweek
 daily_totals = df_agg_std.groupby(["dow_day", "date_only"])["Call_Volume"].sum().reset_index()
 daily_std_lookup = daily_totals.groupby("dow_day")["Call_Volume"].std().to_dict()
 print(f"  {len(daily_std_lookup)} day-of-week entries")
@@ -191,9 +222,9 @@ print(f"  {len(daily_std_lookup)} day-of-week entries")
 # 7.5. BUILD AHT LOOKUP (per 30-min slot, for Erlang-A optimizer)
 # ==============================================================================
 print("Building AHT lookup...")
-answered = df[df["answered_flag"] == True].copy()
+answered = df[df["answered_flag"]].copy()
 answered["start"] = pd.to_datetime(answered["start_time_utc"])
-answered["end"]   = pd.to_datetime(answered["end_time_utc"])
+answered["end"] = pd.to_datetime(answered["end_time_utc"])
 answered["handle_time"] = (answered["end"] - answered["start"]).dt.total_seconds()
 
 # Filter outliers: keep 0 < handle_time < 14400s (4 hours)
@@ -201,7 +232,7 @@ answered = answered[(answered["handle_time"] > 0) & (answered["handle_time"] < 1
 
 # Group by (day_of_week, 30-min slot) → mean AHT in seconds
 answered["slot"] = answered["start"].dt.floor("30min")
-answered["dow"]  = answered["slot"].dt.dayofweek
+answered["dow"] = answered["slot"].dt.dayofweek
 answered["slot_str"] = answered["slot"].dt.strftime("%H:%M")
 
 aht_lookup = answered.groupby(["dow", "slot_str"])["handle_time"].mean().to_dict()
@@ -231,7 +262,7 @@ temp_path.replace(MODEL_OUTPUT_PATH)
 
 file_size_mb = MODEL_OUTPUT_PATH.stat().st_size / (1024 * 1024)
 print(f"\nSuccess! Model bundle saved to {MODEL_OUTPUT_PATH} ({file_size_mb:.1f} MB)")
-print(f"  RF feature importances (top 5):")
+print("  RF feature importances (top 5):")
 importance = sorted(zip(features, rf_model.feature_importances_), key=lambda x: -x[1])
 for name, imp in importance[:5]:
     print(f"    {name}: {imp:.4f}")

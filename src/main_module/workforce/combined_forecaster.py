@@ -8,10 +8,17 @@ from lightgbm import LGBMRegressor, early_stopping, log_evaluation
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import RobustScaler
 
-
 _US_HOLIDAYS = {
-    (1, 1), (1, 15), (2, 19), (5, 27), (7, 4),
-    (9, 2), (10, 14), (11, 11), (11, 28), (12, 25),
+    (1, 1),
+    (1, 15),
+    (2, 19),
+    (5, 27),
+    (7, 4),
+    (9, 2),
+    (10, 14),
+    (11, 11),
+    (11, 28),
+    (12, 25),
 }
 
 _MAJOR_HOLIDAYS = {(1, 1), (11, 28), (12, 25)}
@@ -35,63 +42,149 @@ def _days_to_deadline(month, day, dl_month, dl_day):
 
 
 class CombinedForecaster:
-
     SHORT_TERM_FEATURES = [
-        "hour", "minute", "day_of_week", "day_of_month", "month", "time_slot",
-        "week_of_year", "day_of_year",
-        "is_holiday", "is_major_holiday", "is_january",
-        "days_to_tax_deadline", "tax_urgency", "is_post_tax_drop",
-        "hour_sin", "hour_cos", "dow_sin", "month_sin", "month_cos",
-        "lag_1", "lag_2", "lag_4", "lag_48", "lag_336", "lag_672",
-        "lag_same_time_yesterday", "lag_same_time_last_week",
-        "diff_1", "diff_48", "diff_336",
-        "rolling_mean_4", "rolling_mean_12", "rolling_mean_48", "rolling_mean_336",
-        "rolling_std_4", "rolling_std_48", "rolling_max_4",
-        "ewm_mean_12", "ewm_mean_48",
-        "hourly_trend", "daily_trend",
-        "volatility_ratio", "momentum",
-        "inbound_ratio", "chat_ratio", "callback_ratio",
-        "lag_transfer_rate", "lag_fcr_rate", "lag_mean_hold",
-        "lag_active_experts", "lag_mean_occupancy", "lag_total_avail",
-        "rolling_experts_48", "rolling_occupancy_48",
+        "hour",
+        "minute",
+        "day_of_week",
+        "day_of_month",
+        "month",
+        "time_slot",
+        "week_of_year",
+        "day_of_year",
+        "is_holiday",
+        "is_major_holiday",
+        "is_january",
+        "days_to_tax_deadline",
+        "tax_urgency",
+        "is_post_tax_drop",
+        "hour_sin",
+        "hour_cos",
+        "dow_sin",
+        "month_sin",
+        "month_cos",
+        "lag_1",
+        "lag_2",
+        "lag_4",
+        "lag_48",
+        "lag_336",
+        "lag_672",
+        "lag_same_time_yesterday",
+        "lag_same_time_last_week",
+        "diff_1",
+        "diff_48",
+        "diff_336",
+        "rolling_mean_4",
+        "rolling_mean_12",
+        "rolling_mean_48",
+        "rolling_mean_336",
+        "rolling_std_4",
+        "rolling_std_48",
+        "rolling_max_4",
+        "ewm_mean_12",
+        "ewm_mean_48",
+        "hourly_trend",
+        "daily_trend",
+        "volatility_ratio",
+        "momentum",
+        "inbound_ratio",
+        "chat_ratio",
+        "callback_ratio",
+        "lag_transfer_rate",
+        "lag_fcr_rate",
+        "lag_mean_hold",
+        "lag_active_experts",
+        "lag_mean_occupancy",
+        "lag_total_avail",
+        "rolling_experts_48",
+        "rolling_occupancy_48",
         "yoy_same_dow_hour_mean",
     ]
 
     LONG_TERM_FEATURES = [
-        "hour", "day_of_week", "day_of_month", "month", "time_slot",
-        "week_of_year", "day_of_year",
-        "is_holiday", "is_major_holiday", "is_january",
-        "days_to_tax_deadline", "tax_urgency", "is_post_tax_drop",
-        "hour_cos", "dow_sin", "month_sin", "month_cos",
-        "hist_dow_hour_mean", "hist_dow_hour_std", "hist_dow_hour_median",
-        "hist_month_dow_hour_mean", "hist_month_dow_hour_std",
+        "hour",
+        "day_of_week",
+        "day_of_month",
+        "month",
+        "time_slot",
+        "week_of_year",
+        "day_of_year",
+        "is_holiday",
+        "is_major_holiday",
+        "is_january",
+        "days_to_tax_deadline",
+        "tax_urgency",
+        "is_post_tax_drop",
+        "hour_cos",
+        "dow_sin",
+        "month_sin",
+        "month_cos",
+        "hist_dow_hour_mean",
+        "hist_dow_hour_std",
+        "hist_dow_hour_median",
+        "hist_month_dow_hour_mean",
+        "hist_month_dow_hour_std",
         "hist_month_mean",
         "hist_time_slot_mean",
-        "hist_week_of_year_mean", "hist_quarter_dow_mean",
-        "rolling_mean_336", "rolling_mean_672",
-        "ewm_mean_336", "ewm_mean_672",
-        "inbound_ratio", "chat_ratio", "callback_ratio",
-        "hist_transfer_rate", "hist_fcr_rate", "hist_mean_hold",
-        "hist_mean_experts", "hist_mean_occupancy",
-        "yoy_same_dow_hour_mean", "yoy_same_week_mean",
-        "recent_quarter_mean", "recent_month_mean",
+        "hist_week_of_year_mean",
+        "hist_quarter_dow_mean",
+        "rolling_mean_336",
+        "rolling_mean_672",
+        "ewm_mean_336",
+        "ewm_mean_672",
+        "inbound_ratio",
+        "chat_ratio",
+        "callback_ratio",
+        "hist_transfer_rate",
+        "hist_fcr_rate",
+        "hist_mean_hold",
+        "hist_mean_experts",
+        "hist_mean_occupancy",
+        "yoy_same_dow_hour_mean",
+        "yoy_same_week_mean",
+        "recent_quarter_mean",
+        "recent_month_mean",
         "hist_recent_dow_hour_mean",
-        "hist_dow_time_slot_mean", "hist_month_time_slot_mean",
+        "hist_dow_time_slot_mean",
+        "hist_month_time_slot_mean",
     ]
 
     _LT_ENSEMBLE_CONFIGS = [
-        {"n_estimators": 1500, "max_depth": 9, "learning_rate": 0.015,
-         "subsample": 0.8, "colsample_bytree": 0.6, "reg_alpha": 1.0,
-         "reg_lambda": 2.0, "min_child_samples": 15, "num_leaves": 200,
-         "random_state": 42},
-        {"n_estimators": 1500, "max_depth": 9, "learning_rate": 0.015,
-         "subsample": 0.7, "colsample_bytree": 0.5, "reg_alpha": 1.0,
-         "reg_lambda": 2.0, "min_child_samples": 15, "num_leaves": 200,
-         "random_state": 7},
-        {"n_estimators": 1500, "max_depth": 8, "learning_rate": 0.02,
-         "subsample": 0.85, "colsample_bytree": 0.7, "reg_alpha": 1.0,
-         "reg_lambda": 2.0, "min_child_samples": 20, "num_leaves": 127,
-         "random_state": 123},
+        {
+            "n_estimators": 1500,
+            "max_depth": 9,
+            "learning_rate": 0.015,
+            "subsample": 0.8,
+            "colsample_bytree": 0.6,
+            "reg_alpha": 1.0,
+            "reg_lambda": 2.0,
+            "min_child_samples": 15,
+            "num_leaves": 200,
+            "random_state": 42,
+        },
+        {
+            "n_estimators": 1500,
+            "max_depth": 9,
+            "learning_rate": 0.015,
+            "subsample": 0.7,
+            "colsample_bytree": 0.5,
+            "reg_alpha": 1.0,
+            "reg_lambda": 2.0,
+            "min_child_samples": 15,
+            "num_leaves": 200,
+            "random_state": 7,
+        },
+        {
+            "n_estimators": 1500,
+            "max_depth": 8,
+            "learning_rate": 0.02,
+            "subsample": 0.85,
+            "colsample_bytree": 0.7,
+            "reg_alpha": 1.0,
+            "reg_lambda": 2.0,
+            "min_child_samples": 20,
+            "num_leaves": 127,
+            "random_state": 123,
+        },
     ]
 
     def __init__(self):
@@ -114,7 +207,11 @@ class CombinedForecaster:
 
         raw_data = pd.read_parquet(
             data_path,
-            columns=["arrival_time_utc", "cc_id", "communication_channel_type"],
+            columns=[
+                "arrival_time_utc",
+                "cc_id",
+                "communication_channel_type",
+            ],
         )
         raw_data["arrival_time_utc"] = pd.to_datetime(raw_data["arrival_time_utc"])
         raw_data["interval_start"] = raw_data["arrival_time_utc"].dt.floor("30min")
@@ -122,10 +219,14 @@ class CombinedForecaster:
         channel = raw_data["communication_channel_type"].fillna("")
         raw_data["_is_inbound"] = channel.str.startswith("INBOUND").astype(np.int8)
         raw_data["_is_chat"] = channel.str.contains(
-            "CHAT|LiveChat|MessagingChat", case=False, regex=True,
+            "CHAT|LiveChat|MessagingChat",
+            case=False,
+            regex=True,
         ).astype(np.int8)
         raw_data["_is_callback"] = channel.str.contains(
-            "CALLBACK", case=False, regex=True,
+            "CALLBACK",
+            case=False,
+            regex=True,
         ).astype(np.int8)
 
         interval_counts = (
@@ -147,7 +248,12 @@ class CombinedForecaster:
         )
         full_df = pd.DataFrame({"interval_start": full_range})
         interval_counts = full_df.merge(interval_counts, on="interval_start", how="left")
-        for col in ["call_count", "inbound_count", "chat_count", "callback_count"]:
+        for col in [
+            "call_count",
+            "inbound_count",
+            "chat_count",
+            "callback_count",
+        ]:
             interval_counts[col] = interval_counts[col].fillna(0).astype(np.int32)
 
         interval_counts = self._smooth_anomalies(interval_counts)
@@ -161,7 +267,9 @@ class CombinedForecaster:
             mask = (df["interval_start"] >= start) & (df["interval_start"] <= end)
             if mask.any():
                 df.loc[mask, "call_count"] = np.nan
-                df["call_count"] = df["call_count"].interpolate(method="linear").fillna(0).astype(np.int32)
+                df["call_count"] = (
+                    df["call_count"].interpolate(method="linear").fillna(0).astype(np.int32)
+                )
                 print(f"  Smoothed anomaly: {start} to {end}")
         return df
 
@@ -175,7 +283,12 @@ class CombinedForecaster:
         print("  Merging dataset_3 (historical outcomes)...")
         d3 = pd.read_parquet(
             d3_path,
-            columns=["session_start_time_utc", "transfer_count", "first_call_resolution", "hold_time_seconds"],
+            columns=[
+                "session_start_time_utc",
+                "transfer_count",
+                "first_call_resolution",
+                "hold_time_seconds",
+            ],
         )
         d3["interval_start"] = pd.to_datetime(d3["session_start_time_utc"]).dt.floor("30min")
         d3["_transferred"] = (d3["transfer_count"] > 0).astype(np.int8)
@@ -208,7 +321,12 @@ class CombinedForecaster:
         print("  Merging dataset_4 (expert state)...")
         d4 = pd.read_parquet(
             d4_path,
-            columns=["interval_start_utc", "expert_id", "occupancy_pct", "total_available_time_seconds"],
+            columns=[
+                "interval_start_utc",
+                "expert_id",
+                "occupancy_pct",
+                "total_available_time_seconds",
+            ],
         )
         d4["interval_start"] = pd.to_datetime(d4["interval_start_utc"]).dt.floor("30min")
 
@@ -263,9 +381,7 @@ class CombinedForecaster:
             for m, d in zip(df["month"].values, df["day_of_month"].values)
         ]
         df["is_january"] = (df["month"] == 1).astype(np.int8)
-        df["is_post_tax_drop"] = (
-            (dtd < 0) & (dtd > -365 + 335)
-        ).astype(np.int8)
+        df["is_post_tax_drop"] = ((dtd < 0) & (dtd > -365 + 335)).astype(np.int8)
         mask_post = (df["month"] == 4) & (df["day_of_month"] > 15) | (
             (df["month"] == 5) & (df["day_of_month"] <= 15)
         )
@@ -307,17 +423,27 @@ class CombinedForecaster:
         df["volatility_ratio"] = df["rolling_std_48"] / (df["rolling_mean_48"] + 1)
         df["momentum"] = df["ewm_mean_12"] - df["ewm_mean_48"]
 
-        for col in ["transfer_rate", "fcr_rate", "mean_hold",
-                     "active_experts", "mean_occupancy", "total_avail"]:
+        for col in [
+            "transfer_rate",
+            "fcr_rate",
+            "mean_hold",
+            "active_experts",
+            "mean_occupancy",
+            "total_avail",
+        ]:
             df[f"lag_{col}"] = df[col].shift(1) if col in df.columns else 0.0
 
         if "active_experts" in df.columns:
-            df["rolling_experts_48"] = df["active_experts"].shift(1).rolling(48, min_periods=1).mean()
+            df["rolling_experts_48"] = (
+                df["active_experts"].shift(1).rolling(48, min_periods=1).mean()
+            )
         else:
             df["rolling_experts_48"] = 0.0
 
         if "mean_occupancy" in df.columns:
-            df["rolling_occupancy_48"] = df["mean_occupancy"].shift(1).rolling(48, min_periods=1).mean()
+            df["rolling_occupancy_48"] = (
+                df["mean_occupancy"].shift(1).rolling(48, min_periods=1).mean()
+            )
         else:
             df["rolling_occupancy_48"] = 0.0
 
@@ -328,12 +454,20 @@ class CombinedForecaster:
 
         yoy_dow_hour = (
             train_only_df.groupby(["month", "day_of_week", "hour", "minute"])["call_count"]
-            .mean().rename("yoy_same_dow_hour_mean")
+            .mean()
+            .rename("yoy_same_dow_hour_mean")
         )
-        df = df.merge(yoy_dow_hour, left_on=["month", "day_of_week", "hour", "minute"], right_index=True, how="left")
+        df = df.merge(
+            yoy_dow_hour,
+            left_on=["month", "day_of_week", "hour", "minute"],
+            right_index=True,
+            how="left",
+        )
         df["yoy_same_dow_hour_mean"] = df["yoy_same_dow_hour_mean"].fillna(fallback)
 
-        yoy_week = train_only_df.groupby("week_of_year")["call_count"].mean().rename("yoy_same_week_mean")
+        yoy_week = (
+            train_only_df.groupby("week_of_year")["call_count"].mean().rename("yoy_same_week_mean")
+        )
         df = df.merge(yoy_week, left_on="week_of_year", right_index=True, how="left")
         df["yoy_same_week_mean"] = df["yoy_same_week_mean"].fillna(fallback)
 
@@ -344,8 +478,16 @@ class CombinedForecaster:
         fallback = train_only_df["call_count"].mean()
 
         for keys, prefix, aggs in [
-            (["day_of_week", "hour", "minute"], "hist_dow_hour", ["mean", "std", "median"]),
-            (["month", "day_of_week", "hour", "minute"], "hist_month_dow_hour", ["mean", "std"]),
+            (
+                ["day_of_week", "hour", "minute"],
+                "hist_dow_hour",
+                ["mean", "std", "median"],
+            ),
+            (
+                ["month", "day_of_week", "hour", "minute"],
+                "hist_month_dow_hour",
+                ["mean", "std"],
+            ),
             (["month"], "hist_month", ["mean"]),
             (["time_slot"], "hist_time_slot", ["mean"]),
             (["week_of_year"], "hist_week_of_year", ["mean"]),
@@ -363,7 +505,12 @@ class CombinedForecaster:
             ("mean_occupancy", "hist_mean_occupancy"),
         ]:
             if metric in train_only_df.columns:
-                stats = train_only_df.groupby(["day_of_week", "hour"])[metric].mean().rename(col_name).reset_index()
+                stats = (
+                    train_only_df.groupby(["day_of_week", "hour"])[metric]
+                    .mean()
+                    .rename(col_name)
+                    .reset_index()
+                )
                 df = df.merge(stats, on=["day_of_week", "hour"], how="left")
             if col_name not in df.columns:
                 df[col_name] = 0.0
@@ -375,20 +522,31 @@ class CombinedForecaster:
         df["ewm_mean_672"] = shifted.ewm(span=672, adjust=False).mean()
 
         source_ts = train_only_df.set_index("interval_start")["call_count"].sort_index()
-        last_quarter = source_ts.iloc[-336 * 13:] if len(source_ts) > 336 * 13 else source_ts
-        last_month = source_ts.iloc[-336 * 4:] if len(source_ts) > 336 * 4 else source_ts
+        last_quarter = source_ts.iloc[-336 * 13 :] if len(source_ts) > 336 * 13 else source_ts
+        last_month = source_ts.iloc[-336 * 4 :] if len(source_ts) > 336 * 4 else source_ts
 
-        for subset, col_name in [(last_quarter, "recent_quarter_mean"), (last_month, "recent_month_mean")]:
-            stats = subset.groupby([subset.index.dayofweek, subset.index.hour, subset.index.minute]).mean()
+        for subset, col_name in [
+            (last_quarter, "recent_quarter_mean"),
+            (last_month, "recent_month_mean"),
+        ]:
+            stats = subset.groupby(
+                [
+                    subset.index.dayofweek,
+                    subset.index.hour,
+                    subset.index.minute,
+                ]
+            ).mean()
             stats.index.names = ["day_of_week", "hour", "minute"]
             stats = stats.rename(col_name).reset_index()
             df = df.merge(stats, on=["day_of_week", "hour", "minute"], how="left")
             df[col_name] = df[col_name].fillna(fallback)
 
-        recent_half = train_only_df.iloc[len(train_only_df) // 2:]
+        recent_half = train_only_df.iloc[len(train_only_df) // 2 :]
         recent_dow_hour = (
             recent_half.groupby(["day_of_week", "hour", "minute"])["call_count"]
-            .mean().rename("hist_recent_dow_hour_mean").reset_index()
+            .mean()
+            .rename("hist_recent_dow_hour_mean")
+            .reset_index()
         )
         df = df.merge(recent_dow_hour, on=["day_of_week", "hour", "minute"], how="left")
         df["hist_recent_dow_hour_mean"] = df["hist_recent_dow_hour_mean"].fillna(fallback)
@@ -408,22 +566,27 @@ class CombinedForecaster:
             "overall_mean": float(df["call_count"].mean()),
             "overall_std": float(df["call_count"].std()),
         }
-        for grp_name, keys in [("month", ["month"]), ("dow", ["day_of_week"]), ("hour", ["hour"])]:
+        for grp_name, keys in [
+            ("month", ["month"]),
+            ("dow", ["day_of_week"]),
+            ("hour", ["hour"]),
+        ]:
             stats = df.groupby(keys)["call_count"].agg(["mean", "std"])
             self.historical_patterns[grp_name] = {
                 "mean": stats["mean"].to_dict(),
                 "std": stats["std"].to_dict(),
             }
-        self._hist_index = df.groupby(
-            ["month", "day_of_week", "hour", "minute"]
-        )["call_count"].agg(["mean", "std", "max", "min"])
+        self._hist_index = df.groupby(["month", "day_of_week", "hour", "minute"])["call_count"].agg(
+            ["mean", "std", "max", "min"]
+        )
 
         holiday_df = df[df["is_major_holiday"] == 1]
         if len(holiday_df) > 0:
             ts = holiday_df["interval_start"]
             self._holiday_profiles = (
                 holiday_df.groupby([ts.dt.month, ts.dt.day, ts.dt.hour, ts.dt.minute])["call_count"]
-                .mean().to_dict()
+                .mean()
+                .to_dict()
             )
 
     def _lookup_historical(self, month, dow, hour, minute):
@@ -442,8 +605,9 @@ class CombinedForecaster:
 
         print("\n  Loading and aggregating data...")
         interval_df = self._load_and_prepare_data(data_path)
-        print(f"  Intervals: {len(interval_df):,}  "
-              f"({interval_df['interval_start'].min().date()} to {interval_df['interval_start'].max().date()})")
+        min_d = interval_df["interval_start"].min().date()
+        max_d = interval_df["interval_start"].max().date()
+        print(f"  Intervals: {len(interval_df):,}  ({min_d} to {max_d})")
 
         print("  Creating base features...")
         df = self._create_base_features(interval_df)
@@ -451,7 +615,8 @@ class CombinedForecaster:
         test_months_available = sorted(df.loc[df["year"] == test_year, "month"].unique())
         last_complete_test_month = test_months_available[-1]
         last_day = df.loc[
-            (df["year"] == test_year) & (df["month"] == last_complete_test_month), "day_of_month"
+            (df["year"] == test_year) & (df["month"] == last_complete_test_month),
+            "day_of_month",
         ].max()
         if last_day < 28:
             test_months_available = test_months_available[:-1]
@@ -465,7 +630,10 @@ class CombinedForecaster:
         print("  Computing historical patterns & holiday profiles...")
         self._compute_historical_patterns(df[train_mask])
 
-        print(f"\n  Train: {train_year} ({train_mask.sum():,} intervals)  Test: {test_year} ({test_mask.sum():,} intervals)")
+        train_n = train_mask.sum()
+        test_n = test_mask.sum()
+        print(f"\n  Train: {train_year} ({train_n:,} intervals)")
+        print(f"  Test: {test_year} ({test_n:,} intervals)")
         print(f"  Holiday profiles stored: {len(self._holiday_profiles)}")
 
         print("\n" + "-" * 70)
@@ -490,13 +658,23 @@ class CombinedForecaster:
         st_weights = 0.2 + 0.8 * (st_idx / st_idx.max())
 
         self.short_term_model = LGBMRegressor(
-            n_estimators=800, max_depth=9, learning_rate=0.03,
-            subsample=0.8, colsample_bytree=0.7, reg_alpha=0.05,
-            reg_lambda=0.5, min_child_samples=15, num_leaves=127,
-            random_state=42, verbosity=-1, n_jobs=-1,
+            n_estimators=800,
+            max_depth=9,
+            learning_rate=0.03,
+            subsample=0.8,
+            colsample_bytree=0.7,
+            reg_alpha=0.05,
+            reg_lambda=0.5,
+            min_child_samples=15,
+            num_leaves=127,
+            random_state=42,
+            verbosity=-1,
+            n_jobs=-1,
         )
         self.short_term_model.fit(
-            X_tr_s, y_tr, sample_weight=st_weights,
+            X_tr_s,
+            y_tr,
+            sample_weight=st_weights,
             eval_set=[(X_te_s, y_te)],
             callbacks=[early_stopping(50, verbose=False), log_evaluation(0)],
         )
@@ -509,7 +687,14 @@ class CombinedForecaster:
         print(f"  MAE: {st_mae:.2f}  RMSE: {st_rmse:.2f}  R²: {st_r2:.4f}  WMAPE: {st_wmape:.2f}%")
 
         if hasattr(self.short_term_model, "feature_importances_"):
-            imp = sorted(zip(self.short_term_features, self.short_term_model.feature_importances_), key=lambda x: x[1], reverse=True)
+            imp = sorted(
+                zip(
+                    self.short_term_features,
+                    self.short_term_model.feature_importances_,
+                ),
+                key=lambda x: x[1],
+                reverse=True,
+            )
             self.feature_importance["short_term"] = dict(imp)
             print("  Top features:", ", ".join(n for n, _ in imp[:10]))
 
@@ -534,14 +719,21 @@ class CombinedForecaster:
         lt_idx = np.arange(len(X_tr), dtype=np.float64)
         lt_weights = 0.1 + 0.9 * (lt_idx / lt_idx.max()) ** 2
 
-        lt_models = [LGBMRegressor(**cfg, verbosity=-1, n_jobs=-1) for cfg in self._LT_ENSEMBLE_CONFIGS]
+        lt_models = [
+            LGBMRegressor(**cfg, verbosity=-1, n_jobs=-1) for cfg in self._LT_ENSEMBLE_CONFIGS
+        ]
         print(f"  Training {len(lt_models)}-model ensemble...")
 
         for model in lt_models:
             model.fit(
-                X_tr_s, y_tr, sample_weight=lt_weights,
+                X_tr_s,
+                y_tr,
+                sample_weight=lt_weights,
                 eval_set=[(X_te_s, y_te)],
-                callbacks=[early_stopping(50, verbose=False), log_evaluation(0)],
+                callbacks=[
+                    early_stopping(50, verbose=False),
+                    log_evaluation(0),
+                ],
             )
         self.long_term_model = lt_models
 
@@ -553,7 +745,11 @@ class CombinedForecaster:
         print(f"  MAE: {lt_mae:.2f}  RMSE: {lt_rmse:.2f}  R²: {lt_r2:.4f}  WMAPE: {lt_wmape:.2f}%")
 
         total_imp = sum(m.feature_importances_ for m in lt_models)
-        imp = sorted(zip(self.long_term_features, total_imp), key=lambda x: x[1], reverse=True)
+        imp = sorted(
+            zip(self.long_term_features, total_imp),
+            key=lambda x: x[1],
+            reverse=True,
+        )
         self.feature_importance["long_term"] = dict(imp)
         print("  Top features:", ", ".join(n for n, _ in imp[:10]))
 
@@ -571,8 +767,12 @@ class CombinedForecaster:
         is_post = (mon == 4 and dom > 15) or (mon == 5 and dom <= 15)
 
         return {
-            "hour": h, "minute": m, "day_of_week": dow, "day_of_month": dom,
-            "month": mon, "time_slot": h * 2 + (m // 30),
+            "hour": h,
+            "minute": m,
+            "day_of_week": dow,
+            "day_of_month": dom,
+            "month": mon,
+            "time_slot": h * 2 + (m // 30),
             "week_of_year": dt.isocalendar()[1],
             "day_of_year": dt.timetuple().tm_yday,
             "is_holiday": int((mon, dom) in _US_HOLIDAYS),
@@ -586,7 +786,9 @@ class CombinedForecaster:
             "dow_sin": np.sin(2 * np.pi * dow / 7),
             "month_sin": np.sin(2 * np.pi * mon / 12),
             "month_cos": np.cos(2 * np.pi * mon / 12),
-            "inbound_ratio": 0.3, "chat_ratio": 0.2, "callback_ratio": 0.25,
+            "inbound_ratio": 0.3,
+            "chat_ratio": 0.2,
+            "callback_ratio": 0.25,
         }
 
     def predict(self, target_datetime, reference_date=None):
@@ -685,31 +887,36 @@ class CombinedForecaster:
         results = []
         current = datetime.combine(target_date, datetime.min.time())
         for _ in range(48):
-            results.append({
-                "interval_start": current,
-                "predicted_calls": self.predict(current, reference_date),
-                "model_used": model_used,
-            })
+            results.append(
+                {
+                    "interval_start": current,
+                    "predicted_calls": self.predict(current, reference_date),
+                    "model_used": model_used,
+                }
+            )
             current += timedelta(minutes=30)
 
         return pd.DataFrame(results)
 
     def save_model(self, filepath):
         with open(filepath, "wb") as f:
-            pickle.dump({
-                "short_term_model": self.short_term_model,
-                "long_term_model": self.long_term_model,
-                "short_term_scaler": self.short_term_scaler,
-                "long_term_scaler": self.long_term_scaler,
-                "short_term_features": self.short_term_features,
-                "long_term_features": self.long_term_features,
-                "historical_patterns": self.historical_patterns,
-                "_hist_index": self._hist_index,
-                "_holiday_profiles": self._holiday_profiles,
-                "max_training_date": self.max_training_date,
-                "short_term_threshold_days": self.short_term_threshold_days,
-                "feature_importance": self.feature_importance,
-            }, f)
+            pickle.dump(
+                {
+                    "short_term_model": self.short_term_model,
+                    "long_term_model": self.long_term_model,
+                    "short_term_scaler": self.short_term_scaler,
+                    "long_term_scaler": self.long_term_scaler,
+                    "short_term_features": self.short_term_features,
+                    "long_term_features": self.long_term_features,
+                    "historical_patterns": self.historical_patterns,
+                    "_hist_index": self._hist_index,
+                    "_holiday_profiles": self._holiday_profiles,
+                    "max_training_date": self.max_training_date,
+                    "short_term_threshold_days": self.short_term_threshold_days,
+                    "feature_importance": self.feature_importance,
+                },
+                f,
+            )
 
     def load_model(self, filepath):
         with open(filepath, "rb") as f:

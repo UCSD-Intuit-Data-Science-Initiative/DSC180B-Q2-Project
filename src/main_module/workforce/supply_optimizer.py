@@ -1,6 +1,8 @@
 """Supply Optimizer - Finds minimum staffing meeting business constraints."""
 
 from dataclasses import dataclass
+from typing import Optional
+
 from .call_center_emulator import CallCenterEmulator, EmulatorMetrics
 
 
@@ -13,6 +15,7 @@ class OptimizationConstraints:
         max_wait_time: Maximum acceptable wait time in seconds, default 60
         max_occupancy: Maximum agent occupancy (0-1), default 0.85
     """
+
     min_sla: float = 0.80
     max_wait_time: float = 60.0
     max_occupancy: float = 0.85
@@ -27,6 +30,7 @@ class OptimalSupply:
         predicted_metrics: EmulatorMetrics at optimal headcount
         is_feasible: Whether optimal solution satisfies all constraints
     """
+
     headcount: int
     predicted_metrics: EmulatorMetrics
     is_feasible: bool
@@ -49,11 +53,7 @@ class SupplyOptimizer:
         >>> print(f"Need {result.headcount} agents")
     """
 
-    def __init__(
-        self,
-        emulator: CallCenterEmulator,
-        max_supply: int = 500
-    ) -> None:
+    def __init__(self, emulator: CallCenterEmulator, max_supply: int = 500) -> None:
         """Initialize optimizer with a call center emulator.
 
         Args:
@@ -64,9 +64,7 @@ class SupplyOptimizer:
         self.max_supply = max_supply
 
     def _meets_constraints(
-        self,
-        metrics: EmulatorMetrics,
-        constraints: OptimizationConstraints
+        self, metrics: EmulatorMetrics, constraints: OptimizationConstraints
     ) -> bool:
         """Check whether predicted metrics satisfy all business constraints.
 
@@ -89,7 +87,7 @@ class SupplyOptimizer:
         demand: int,
         constraints: OptimizationConstraints,
         min_agents: int = 1,
-        avg_handle_time: float = None,
+        avg_handle_time: Optional[float] = None,
     ) -> OptimalSupply:
         """Find minimum staffing meeting all constraints.
 

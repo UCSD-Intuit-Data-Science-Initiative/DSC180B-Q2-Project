@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 
@@ -48,7 +49,7 @@ class EmulatorMetrics:
 
 
 class CallCenterEmulator:
-    def __init__(self, config: EmulatorConfig = None, model: str = "erlang_a"):
+    def __init__(self, config: Optional[EmulatorConfig] = None, model: str = "erlang_a"):
         self.config = config or EmulatorConfig()
         self.model = model
 
@@ -66,8 +67,8 @@ class CallCenterEmulator:
             log_fact[1:] = np.cumsum(np.log(np.arange(1, num_agents + 1)))
 
         log_A = np.log(traffic_intensity)
-        log_terms = k * log_A - log_fact          # shape: (num_agents+1,)
-        log_numerator = log_terms[-1]             # term for k = num_agents
+        log_terms = k * log_A - log_fact  # shape: (num_agents+1,)
+        log_numerator = log_terms[-1]  # term for k = num_agents
 
         max_log = np.max(log_terms)
         log_denominator = max_log + np.log(np.sum(np.exp(log_terms - max_log)))
@@ -131,9 +132,7 @@ class CallCenterEmulator:
             excess_rate = arrival_rate - num_agents * service_rate
             prob_abandon = min(0.9, excess_rate / arrival_rate + 0.1)
 
-            avg_wait_served = 1 / (
-                num_agents * service_rate * 0.01 + abandonment_rate
-            )
+            avg_wait_served = 1 / (num_agents * service_rate * 0.01 + abandonment_rate)
             avg_wait_abandoned = 1 / abandonment_rate
 
             return {
@@ -161,9 +160,7 @@ class CallCenterEmulator:
         else:
             avg_wait_served = prob_wait_c / (abandonment_rate + 0.001)
 
-        avg_wait_abandoned = (
-            1 / abandonment_rate if abandonment_rate > 0 else float("inf")
-        )
+        avg_wait_abandoned = 1 / abandonment_rate if abandonment_rate > 0 else float("inf")
 
         effective_arrival = arrival_rate * (1 - prob_abandon)
 
@@ -213,9 +210,7 @@ class CallCenterEmulator:
         prob_wait = self._erlang_c(num_agents, traffic_intensity)
         traffic_intensity / num_agents
 
-        exponent = (
-            -(num_agents - traffic_intensity) * service_rate * target_time
-        )
+        exponent = -(num_agents - traffic_intensity) * service_rate * target_time
         service_level = 1 - prob_wait * np.exp(exponent)
 
         return max(0, min(100, service_level * 100))
@@ -244,9 +239,7 @@ class CallCenterEmulator:
         rho = min(traffic_intensity / num_agents, 0.99)
 
         decay_rate = num_agents * service_rate * (1 - rho) + abandonment_rate
-        prob_wait_exceeds_target = prob_wait * np.exp(
-            -decay_rate * target_time
-        )
+        prob_wait_exceeds_target = prob_wait * np.exp(-decay_rate * target_time)
 
         service_level = 1 - prob_wait_exceeds_target - prob_abandon
 
@@ -256,7 +249,7 @@ class CallCenterEmulator:
         self,
         num_experts: int,
         incoming_calls: int,
-        avg_handle_time: float = None,
+        avg_handle_time: Optional[float] = None,
     ) -> EmulatorMetrics:
         if avg_handle_time is None:
             avg_handle_time = self.config.avg_handle_time
@@ -307,9 +300,7 @@ class CallCenterEmulator:
                 self.config.sla_threshold_seconds,
             )
         else:
-            avg_wait_time = self._calculate_avg_wait_time(
-                num_experts, arrival_rate, service_rate
-            )
+            avg_wait_time = self._calculate_avg_wait_time(num_experts, arrival_rate, service_rate)
 
             sla_compliance = self._calculate_service_level(
                 num_experts,
@@ -321,15 +312,11 @@ class CallCenterEmulator:
             if avg_wait_time == float("inf"):
                 abandonment_rate = 50.0
             else:
-                abandonment_prob = 1 - np.exp(
-                    -avg_wait_time / self.config.max_wait_time_seconds
-                )
+                abandonment_prob = 1 - np.exp(-avg_wait_time / self.config.max_wait_time_seconds)
                 abandonment_rate = min(100, abandonment_prob * 100)
 
         utilization_rate = (
-            min(100, (traffic_intensity / num_experts) * 100)
-            if num_experts > 0
-            else 100
+            min(100, (traffic_intensity / num_experts) * 100) if num_experts > 0 else 100
         )
 
         if avg_wait_time == float("inf"):
@@ -357,12 +344,10 @@ class CallCenterEmulator:
         self,
         num_experts_per_interval: list,
         calls_per_interval: list,
-        avg_handle_time: float = None,
+        avg_handle_time: Optional[float] = None,
     ) -> dict:
         if len(num_experts_per_interval) != len(calls_per_interval):
-            raise ValueError(
-                "Expert count and call count lists must have same length"
-            )
+            raise ValueError("Expert count and call count lists must have same length")
 
         interval_metrics = []
         total_calls = 0
@@ -372,9 +357,7 @@ class CallCenterEmulator:
         weighted_sla = 0
         weighted_util = 0
 
-        for experts, calls in zip(
-            num_experts_per_interval, calls_per_interval
-        ):
+        for experts, calls in zip(num_experts_per_interval, calls_per_interval):
             metrics = self.simulate_interval(experts, calls, avg_handle_time)
             interval_metrics.append(metrics)
 
@@ -418,9 +401,7 @@ def main():
     print("CALL CENTER EMULATOR COMPARISON: ERLANG-C vs ERLANG-A")
     print("=" * 70)
 
-    config = EmulatorConfig(
-        avg_handle_time=600, sla_threshold_seconds=60, avg_patience_time=180
-    )
+    config = EmulatorConfig(avg_handle_time=600, sla_threshold_seconds=60, avg_patience_time=180)
 
     emulator_c = CallCenterEmulator(config, model="erlang_c")
     emulator_a = CallCenterEmulator(config, model="erlang_a")
@@ -435,9 +416,7 @@ def main():
     print("\n" + "-" * 70)
     print("ERLANG-C (assumes infinite patience - no abandonment modeling)")
     print("-" * 70)
-    print(
-        f"{'Experts':<10} {'Avg Wait':<12} {'SLA%':<10} {'Util%':<10} {'Abandon%':<10}"
-    )
+    print(f"{'Experts':<10} {'Avg Wait':<12} {'SLA%':<10} {'Util%':<10} {'Abandon%':<10}")
 
     for num_experts in [3, 4, 5, 6, 7, 8]:
         metrics = emulator_c.simulate_interval(num_experts, incoming_calls)
@@ -449,9 +428,7 @@ def main():
     print("\n" + "-" * 70)
     print("ERLANG-A (models customer abandonment realistically)")
     print("-" * 70)
-    print(
-        f"{'Experts':<10} {'Avg Wait':<12} {'SLA%':<10} {'Util%':<10} {'Abandon%':<10}"
-    )
+    print(f"{'Experts':<10} {'Avg Wait':<12} {'SLA%':<10} {'Util%':<10} {'Abandon%':<10}")
 
     for num_experts in [3, 4, 5, 6, 7, 8]:
         metrics = emulator_a.simulate_interval(num_experts, incoming_calls)
@@ -540,14 +517,10 @@ Erlang-A:
     print(f"  Calls handled: {results['summary']['total_handled']}")
     print(f"  Calls abandoned: {results['summary']['total_abandoned']}")
     print(f"  Avg wait time: {results['summary']['avg_wait_time']:.1f}s")
-    print(
-        f"  Avg SLA compliance: {results['summary']['avg_sla_compliance']:.1f}%"
-    )
+    print(f"  Avg SLA compliance: {results['summary']['avg_sla_compliance']:.1f}%")
     print(f"  Avg utilization: {results['summary']['avg_utilization']:.1f}%")
     print(f"  Abandonment rate: {results['summary']['abandonment_rate']:.1f}%")
-    print(
-        f"  Total expert-intervals: {results['summary']['total_experts_scheduled']}"
-    )
+    print(f"  Total expert-intervals: {results['summary']['total_experts_scheduled']}")
 
 
 if __name__ == "__main__":

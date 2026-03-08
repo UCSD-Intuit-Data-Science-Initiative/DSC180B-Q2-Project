@@ -38,20 +38,30 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 # ---------------------------------------------------------------------------
 
 DATA_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-MODEL_PATH = Path(os.environ.get(
-    "MODEL_PATH",
-    str(DATA_ROOT / "data" / "models" / "call_volume_model_bundle.pkl"),
-))
+MODEL_PATH = Path(
+    os.environ.get(
+        "MODEL_PATH",
+        str(DATA_ROOT / "data" / "models" / "call_volume_model_bundle.pkl"),
+    )
+)
 
 # ---------------------------------------------------------------------------
 # Major holidays — must match train_model.py exactly
 # ---------------------------------------------------------------------------
 
-MAJOR_HOLIDAYS = pd.to_datetime([
-    "2024-01-01", "2025-01-01", "2026-01-01",
-    "2024-11-28", "2025-11-27", "2026-11-26",
-    "2024-12-25", "2025-12-25", "2026-12-25",
-])
+MAJOR_HOLIDAYS = pd.to_datetime(
+    [
+        "2024-01-01",
+        "2025-01-01",
+        "2026-01-01",
+        "2024-11-28",
+        "2025-11-27",
+        "2026-11-26",
+        "2024-12-25",
+        "2025-12-25",
+        "2026-12-25",
+    ]
+)
 
 # ---------------------------------------------------------------------------
 # Global variables
@@ -92,15 +102,20 @@ def load_model_bundle():
 
 def _build_emulator_and_optimizer():
     """Initialize the queueing emulator and staffing optimizer."""
-    from main_module.workforce.call_center_emulator import CallCenterEmulator, EmulatorConfig
+    from main_module.workforce.call_center_emulator import (
+        CallCenterEmulator,
+        EmulatorConfig,
+    )
     from main_module.workforce.supply_optimizer import SupplyOptimizer
 
-    emu = CallCenterEmulator(EmulatorConfig(
-        avg_handle_time=600,             # 10-min average call handle time
-        sla_threshold_seconds=60,        # SLA = answered within 60 seconds
-        avg_patience_time=180,           # callers hang up after ~3 min wait
-        interval_duration_seconds=1800,  # 30-min slot
-    ))
+    emu = CallCenterEmulator(
+        EmulatorConfig(
+            avg_handle_time=600,  # 10-min average call handle time
+            sla_threshold_seconds=60,  # SLA = answered within 60 seconds
+            avg_patience_time=180,  # callers hang up after ~3 min wait
+            interval_duration_seconds=1800,  # 30-min slot
+        )
+    )
     opt = SupplyOptimizer(emu, max_supply=5000)
     return emu, opt
 
@@ -122,6 +137,7 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Startup — runs once automatically when the server starts
 # ---------------------------------------------------------------------------
+
 
 @app.on_event("startup")
 def startup():
@@ -164,6 +180,7 @@ def shutdown():
 # Helper: placeholder data
 # ---------------------------------------------------------------------------
 
+
 def get_placeholder_slots():
     """Return zero-filled slots when the model bundle is not available."""
     time_slots = [f"{h:02d}:{m:02d}" for h in range(5, 17) for m in (0, 30)]
@@ -185,6 +202,7 @@ def get_placeholder_slots():
 # ---------------------------------------------------------------------------
 # Helper: run the full ML pipeline for one date
 # ---------------------------------------------------------------------------
+
 
 def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
     """
@@ -227,8 +245,6 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
     is_major = int(date_normalized in MAJOR_HOLIDAYS)
     is_minor = int(len(date_holidays) > 0 and not is_major)
 
-    # Lag feature helpers
-    lag_intervals = forecast_weeks * 7 * 48
     history_mean = float(history.mean())
     history_max = float(history.max())
 
@@ -255,23 +271,27 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
             trend_feat = f"trend_{forecast_weeks}w"
             max_feat = f"max_{forecast_weeks}w"
 
-            feat_row = pd.DataFrame([{
-                "hour_sin":         np.sin(2 * np.pi * hour / 24),
-                "hour_cos":         np.cos(2 * np.pi * hour / 24),
-                "day_sin":          np.sin(2 * np.pi * dow / 7),
-                "day_cos":          np.cos(2 * np.pi * dow / 7),
-                "month":            ts.month,
-                "weekofyear":       int(ts.isocalendar()[1]),
-                "is_january":       int(ts.month == 1),
-                "is_minor_holiday": is_minor,
-                "is_major_holiday": is_major,
-                "days_to_tax_day":  days_to_tax,
-                "is_tax_season":    int(ts.month <= 4 and days_to_tax >= 0),
-                "is_post_tax_drop": int(days_to_tax < 0 and days_to_tax > -31),
-                lag_feat:           float(lag_value),
-                trend_feat:         float(trend_value),
-                max_feat:           float(max_value),
-            }])
+            feat_row = pd.DataFrame(
+                [
+                    {
+                        "hour_sin": np.sin(2 * np.pi * hour / 24),
+                        "hour_cos": np.cos(2 * np.pi * hour / 24),
+                        "day_sin": np.sin(2 * np.pi * dow / 7),
+                        "day_cos": np.cos(2 * np.pi * dow / 7),
+                        "month": ts.month,
+                        "weekofyear": int(ts.isocalendar()[1]),
+                        "is_january": int(ts.month == 1),
+                        "is_minor_holiday": is_minor,
+                        "is_major_holiday": is_major,
+                        "days_to_tax_day": days_to_tax,
+                        "is_tax_season": int(ts.month <= 4 and days_to_tax >= 0),
+                        "is_post_tax_drop": int(days_to_tax < 0 and days_to_tax > -31),
+                        lag_feat: float(lag_value),
+                        trend_feat: float(trend_value),
+                        max_feat: float(max_value),
+                    }
+                ]
+            )
 
             # Ensemble prediction: 50/50 average of RF and GB
             pred_rf = rf_model.predict(feat_row[features])[0]
@@ -289,23 +309,26 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
             min_agents_floor = max(1, int(np.ceil(traffic_erlangs / max_occupancy)) + 1)
 
             supply_result = optimizer.optimize(
-                predicted_calls, constraints,
+                predicted_calls,
+                constraints,
                 min_agents=min_agents_floor,
                 avg_handle_time=slot_aht,
             )
             metrics = supply_result.predicted_metrics
 
-            results.append({
-                "time":             slot_str,
-                "predicted_calls":  predicted_calls,
-                "agents":           supply_result.headcount,
-                "avg_wait_time":    round(metrics.avg_wait_time, 1),
-                "sla_compliance":   round(metrics.sla_compliance, 1),
-                "utilization_rate": round(metrics.utilization_rate, 1),
-                "abandonment_rate": round(metrics.abandonment_rate, 1),
-                "is_feasible":      supply_result.is_feasible,
-                "aht_seconds_used": float(round(slot_aht, 1)),
-            })
+            results.append(
+                {
+                    "time": slot_str,
+                    "predicted_calls": predicted_calls,
+                    "agents": supply_result.headcount,
+                    "avg_wait_time": round(metrics.avg_wait_time, 1),
+                    "sla_compliance": round(metrics.sla_compliance, 1),
+                    "utilization_rate": round(metrics.utilization_rate, 1),
+                    "abandonment_rate": round(metrics.abandonment_rate, 1),
+                    "is_feasible": supply_result.is_feasible,
+                    "aht_seconds_used": float(round(slot_aht, 1)),
+                }
+            )
 
     return results
 
@@ -313,6 +336,7 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
 # ---------------------------------------------------------------------------
 # API Endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.get("/")
 def root():
@@ -378,14 +402,28 @@ def get_forecast(date: str = "2025-04-15"):
     """
     if not model_ready:
         slots = get_placeholder_slots()
-        return [{"time": s["time"], "predicted_calls": s["predicted_calls"], "model_used": "placeholder"} for s in slots]
+        return [
+            {
+                "time": s["time"],
+                "predicted_calls": s["predicted_calls"],
+                "model_used": "placeholder",
+            }
+            for s in slots
+        ]
 
     try:
         slots = run_pipeline_for_date(date, 0.80, 60.0, 0.85)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    return [{"time": s["time"], "predicted_calls": s["predicted_calls"], "model_used": "rf_gb_ensemble"} for s in slots]
+    return [
+        {
+            "time": s["time"],
+            "predicted_calls": s["predicted_calls"],
+            "model_used": "rf_gb_ensemble",
+        }
+        for s in slots
+    ]
 
 
 @app.get("/api/weekly-forecast")
@@ -410,12 +448,14 @@ def get_weekly_forecast(week_start: str = "2025-04-14"):
             total_calls = sum(s["predicted_calls"] for s in slots)
             dow = day.dayofweek
             std = daily_std_lookup.get(dow, 1000)
-            result.append({
-                "date":        date_str,
-                "day_label":   f"{day.strftime('%a')} {day.month}/{day.day}",
-                "total_calls": total_calls,
-                "range":       round(std),
-            })
+            result.append(
+                {
+                    "date": date_str,
+                    "day_label": f"{day.strftime('%a')} {day.month}/{day.day}",
+                    "total_calls": total_calls,
+                    "range": round(std),
+                }
+            )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -5,7 +5,6 @@ import pandas as pd
 
 
 class ShiftScheduler:
-
     BUSINESS_HOURS_UTC = list(range(13, 24)) + [0]
     SLOT_DURATION_MINUTES = 30
     MAX_SHIFT_SLOTS = 20
@@ -21,9 +20,16 @@ class ShiftScheduler:
     def load_agent_patterns(self, tax_year=None, recent_days=90):
         d4 = pd.read_parquet(
             self.data_dir / "dataset_4_expert_state_interval.parquet",
-            columns=["tax_year", "expert_id", "date", "interval_start_utc",
-                     "total_handle_time_seconds", "total_available_time_seconds",
-                     "occupancy_pct", "primary_activity_category_30m"],
+            columns=[
+                "tax_year",
+                "expert_id",
+                "date",
+                "interval_start_utc",
+                "total_handle_time_seconds",
+                "total_available_time_seconds",
+                "occupancy_pct",
+                "primary_activity_category_30m",
+            ],
         )
         if tax_year is not None:
             d4 = d4[d4["tax_year"] == tax_year]
@@ -35,9 +41,9 @@ class ShiftScheduler:
         d4["interval_start_utc"] = pd.to_datetime(d4["interval_start_utc"])
         d4["hour_utc"] = d4["interval_start_utc"].dt.hour.astype(int)
         d4["dow"] = d4["interval_start_utc"].dt.dayofweek.astype(int)
-        d4["is_working"] = d4["primary_activity_category_30m"].isin(
-            ["handle_work", "available"]
-        ).astype(np.int8)
+        d4["is_working"] = (
+            d4["primary_activity_category_30m"].isin(["handle_work", "available"]).astype(np.int8)
+        )
 
         agent_patterns = (
             d4.groupby(["expert_id", "dow", "hour_utc"])
@@ -56,19 +62,40 @@ class ShiftScheduler:
             if tax_year is not None:
                 d2 = d2[d2["tax_year"] == tax_year]
             d2 = d2[d2["active_flg"] == "Y"]
-            self._agent_meta = d2[["expert_id", "expert_segment", "business_segment",
-                                   "resolution_rate", "average_handle_time_seconds",
-                                   "contacts", "skill_certifications"]].copy()
+            self._agent_meta = d2[
+                [
+                    "expert_id",
+                    "expert_segment",
+                    "business_segment",
+                    "resolution_rate",
+                    "average_handle_time_seconds",
+                    "contacts",
+                    "skill_certifications",
+                ]
+            ].copy()
         return self
 
-    def schedule_day(self, target_date, demand_by_slot, min_agents_per_slot=None,
-                     prefer_high_performers=True, max_agents=None):
+    def schedule_day(
+        self,
+        target_date,
+        demand_by_slot,
+        min_agents_per_slot=None,
+        prefer_high_performers=True,
+        max_agents=None,
+    ):
         target_date = pd.to_datetime(target_date)
         dow = target_date.dayofweek
 
         if dow >= 5:
-            return pd.DataFrame(columns=["expert_id", "slot_start_utc", "slot_end_utc",
-                                         "assignment", "shift_block"])
+            return pd.DataFrame(
+                columns=[
+                    "expert_id",
+                    "slot_start_utc",
+                    "slot_end_utc",
+                    "assignment",
+                    "shift_block",
+                ]
+            )
 
         if self._agent_availability is None:
             raise ValueError("Call load_agent_patterns() first")
@@ -87,12 +114,21 @@ class ShiftScheduler:
 
         if self._agent_meta is not None and prefer_high_performers:
             agent_scores = agent_scores.merge(
-                self._agent_meta[["expert_id", "resolution_rate", "average_handle_time_seconds"]],
-                on="expert_id", how="left",
+                self._agent_meta[
+                    [
+                        "expert_id",
+                        "resolution_rate",
+                        "average_handle_time_seconds",
+                    ]
+                ],
+                on="expert_id",
+                how="left",
             )
             handle_median = agent_scores["average_handle_time_seconds"].median()
             agent_scores["efficiency"] = np.clip(
-                handle_median / agent_scores["average_handle_time_seconds"].clip(lower=1), 0, 2
+                handle_median / agent_scores["average_handle_time_seconds"].clip(lower=1),
+                0,
+                2,
             )
             agent_scores["priority"] = (
                 0.4 * agent_scores["mean_work_freq"].fillna(0)
@@ -159,9 +195,11 @@ class ShiftScheduler:
                 continue
 
             shift_start_hour = int(preferred_hours[0])
-            start_idx = active_slots.index(shift_start_hour) if shift_start_hour in active_slots else 0
+            start_idx = (
+                active_slots.index(shift_start_hour) if shift_start_hour in active_slots else 0
+            )
 
-            shift_hours = active_slots[start_idx:start_idx + self.MAX_SHIFT_SLOTS // 2]
+            shift_hours = active_slots[start_idx : start_idx + self.MAX_SHIFT_SLOTS // 2]
             if len(shift_hours) < self.MIN_SHIFT_SLOTS // 2:
                 continue
 
@@ -178,21 +216,25 @@ class ShiftScheduler:
                     slot_end = slot_start + pd.Timedelta(minutes=30)
 
                     if slot_count > 0 and slot_count % (self.BREAK_EVERY_N_SLOTS * 2) == 0:
-                        assignments.append({
-                            "expert_id": eid,
-                            "slot_start_utc": slot_start,
-                            "slot_end_utc": slot_end,
-                            "assignment": "break",
-                            "shift_block": f"shift_{shift_start_hour:02d}",
-                        })
+                        assignments.append(
+                            {
+                                "expert_id": eid,
+                                "slot_start_utc": slot_start,
+                                "slot_end_utc": slot_end,
+                                "assignment": "break",
+                                "shift_block": f"shift_{shift_start_hour:02d}",
+                            }
+                        )
                     else:
-                        assignments.append({
-                            "expert_id": eid,
-                            "slot_start_utc": slot_start,
-                            "slot_end_utc": slot_end,
-                            "assignment": "work",
-                            "shift_block": f"shift_{shift_start_hour:02d}",
-                        })
+                        assignments.append(
+                            {
+                                "expert_id": eid,
+                                "slot_start_utc": slot_start,
+                                "slot_end_utc": slot_end,
+                                "assignment": "work",
+                                "shift_block": f"shift_{shift_start_hour:02d}",
+                            }
+                        )
                         slot_fill[key] = slot_fill.get(key, 0) + 1
 
                     slot_count += 1
@@ -217,12 +259,14 @@ class ShiftScheduler:
                 demand = demand_by_slot.get(key, 0)
             else:
                 demand = 0
-            rows.append({
-                "slot_start_utc": slot_start,
-                "agents_assigned": count,
-                "predicted_demand": demand,
-                "coverage_ratio": count / max(demand / 1.5, 1),
-            })
+            rows.append(
+                {
+                    "slot_start_utc": slot_start,
+                    "agents_assigned": count,
+                    "predicted_demand": demand,
+                    "coverage_ratio": count / max(demand / 1.5, 1),
+                }
+            )
 
         report = pd.DataFrame(rows)
         return report.sort_values("slot_start_utc").reset_index(drop=True)

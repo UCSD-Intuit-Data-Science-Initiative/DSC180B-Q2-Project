@@ -9,27 +9,30 @@ from sklearn.ensemble import (
     RandomForestRegressor,
     VotingRegressor,
 )
-from sklearn.linear_model import Ridge, ElasticNet
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.preprocessing import RobustScaler
+from sklearn.linear_model import ElasticNet, Ridge
+from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.preprocessing import RobustScaler
 
 warnings.filterwarnings("ignore")
 
 try:
     from xgboost import XGBRegressor
+
     HAS_XGBOOST = True
 except ImportError:
     HAS_XGBOOST = False
 
 try:
     from lightgbm import LGBMRegressor
+
     HAS_LIGHTGBM = True
 except ImportError:
     HAS_LIGHTGBM = False
 
 try:
     import optuna
+
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     HAS_OPTUNA = True
 except ImportError:
@@ -61,8 +64,14 @@ class HybridForecaster:
             raw_data.groupby("interval_start")
             .agg(
                 call_count=("Customer ID", "count"),
-                turbotax_count=("Product group", lambda x: (x == "TurboTax").sum()),
-                quickbooks_count=("Product group", lambda x: (x == "QuickBooks").sum()),
+                turbotax_count=(
+                    "Product group",
+                    lambda x: (x == "TurboTax").sum(),
+                ),
+                quickbooks_count=(
+                    "Product group",
+                    lambda x: (x == "QuickBooks").sum(),
+                ),
             )
             .reset_index()
         )
@@ -96,13 +105,25 @@ class HybridForecaster:
         df["time_slot"] = df["hour"] * 2 + (df["minute"] // 30)
 
         df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
-        df["is_business_hours"] = ((df["hour"] >= 5) & (df["hour"] < 17) & (df["day_of_week"] < 5)).astype(int)
+        df["is_business_hours"] = (
+            (df["hour"] >= 5) & (df["hour"] < 17) & (df["day_of_week"] < 5)
+        ).astype(int)
         df["is_open"] = df["is_business_hours"]
-        df["is_morning_peak"] = ((df["hour"] >= 9) & (df["hour"] < 12) & (df["day_of_week"] < 5)).astype(int)
-        df["is_afternoon_peak"] = ((df["hour"] >= 13) & (df["hour"] < 16) & (df["day_of_week"] < 5)).astype(int)
-        df["is_early_morning"] = ((df["hour"] >= 5) & (df["hour"] < 8) & (df["day_of_week"] < 5)).astype(int)
-        df["is_lunch_hour"] = ((df["hour"] >= 12) & (df["hour"] <= 13) & (df["day_of_week"] < 5)).astype(int)
-        df["is_late_afternoon"] = ((df["hour"] >= 15) & (df["hour"] < 17) & (df["day_of_week"] < 5)).astype(int)
+        df["is_morning_peak"] = (
+            (df["hour"] >= 9) & (df["hour"] < 12) & (df["day_of_week"] < 5)
+        ).astype(int)
+        df["is_afternoon_peak"] = (
+            (df["hour"] >= 13) & (df["hour"] < 16) & (df["day_of_week"] < 5)
+        ).astype(int)
+        df["is_early_morning"] = (
+            (df["hour"] >= 5) & (df["hour"] < 8) & (df["day_of_week"] < 5)
+        ).astype(int)
+        df["is_lunch_hour"] = (
+            (df["hour"] >= 12) & (df["hour"] <= 13) & (df["day_of_week"] < 5)
+        ).astype(int)
+        df["is_late_afternoon"] = (
+            (df["hour"] >= 15) & (df["hour"] < 17) & (df["day_of_week"] < 5)
+        ).astype(int)
         df["is_monday"] = (df["day_of_week"] == 0).astype(int)
         df["is_friday"] = (df["day_of_week"] == 4).astype(int)
         df["is_mid_week"] = ((df["day_of_week"] >= 1) & (df["day_of_week"] <= 3)).astype(int)
@@ -122,14 +143,18 @@ class HybridForecaster:
 
         df["is_tax_season"] = ((df["month"] >= 1) & (df["month"] <= 4)).astype(int)
         df["is_tax_deadline"] = ((df["month"] == 4) & (df["day_of_month"] <= 15)).astype(int)
-        df["is_tax_deadline_week"] = ((df["month"] == 4) & (df["day_of_month"] >= 10) & (df["day_of_month"] <= 17)).astype(int)
-        df["is_tax_crunch"] = ((df["month"] == 4) & (df["day_of_month"] >= 1) & (df["day_of_month"] <= 15)).astype(int)
+        df["is_tax_deadline_week"] = (
+            (df["month"] == 4) & (df["day_of_month"] >= 10) & (df["day_of_month"] <= 17)
+        ).astype(int)
+        df["is_tax_crunch"] = (
+            (df["month"] == 4) & (df["day_of_month"] >= 1) & (df["day_of_month"] <= 15)
+        ).astype(int)
         df["is_extension_deadline"] = ((df["month"] == 10) & (df["day_of_month"] <= 15)).astype(int)
         df["is_quarterly_deadline"] = (
-            ((df["month"] == 1) & (df["day_of_month"] <= 15)) |
-            ((df["month"] == 4) & (df["day_of_month"] <= 15)) |
-            ((df["month"] == 6) & (df["day_of_month"] <= 15)) |
-            ((df["month"] == 9) & (df["day_of_month"] <= 15))
+            ((df["month"] == 1) & (df["day_of_month"] <= 15))
+            | ((df["month"] == 4) & (df["day_of_month"] <= 15))
+            | ((df["month"] == 6) & (df["day_of_month"] <= 15))
+            | ((df["month"] == 9) & (df["day_of_month"] <= 15))
         ).astype(int)
         df["is_year_end"] = (df["month"] == 12).astype(int)
         df["is_month_end"] = (df["day_of_month"] >= 28).astype(int)
@@ -137,15 +162,31 @@ class HybridForecaster:
         df["is_w2_season"] = ((df["month"] == 1) | (df["month"] == 2)).astype(int)
 
         df["days_to_tax_deadline"] = df.apply(
-            lambda x: self._days_to_deadline(x["month"], x["day_of_month"], 4, 15), axis=1
+            lambda x: self._days_to_deadline(x["month"], x["day_of_month"], 4, 15),
+            axis=1,
         )
         df["days_to_extension"] = df.apply(
-            lambda x: self._days_to_deadline(x["month"], x["day_of_month"], 10, 15), axis=1
+            lambda x: self._days_to_deadline(x["month"], x["day_of_month"], 10, 15),
+            axis=1,
         )
         df["tax_urgency"] = np.clip(1 - df["days_to_tax_deadline"] / 120, 0, 1)
 
-        us_holidays = [(1,1), (1,15), (2,19), (5,27), (7,4), (9,2), (10,14), (11,11), (11,28), (12,25)]
-        df["is_holiday"] = df.apply(lambda x: int((x["month"], x["day_of_month"]) in us_holidays), axis=1)
+        us_holidays = [
+            (1, 1),
+            (1, 15),
+            (2, 19),
+            (5, 27),
+            (7, 4),
+            (9, 2),
+            (10, 14),
+            (11, 11),
+            (11, 28),
+            (12, 25),
+        ]
+        df["is_holiday"] = df.apply(
+            lambda x: int((x["month"], x["day_of_month"]) in us_holidays),
+            axis=1,
+        )
         df["is_day_before_holiday"] = df["is_holiday"].shift(-48).fillna(0).astype(int)
         df["is_day_after_holiday"] = df["is_holiday"].shift(48).fillna(0).astype(int)
 
@@ -183,15 +224,29 @@ class HybridForecaster:
         df["diff_336"] = df["call_count"].diff(336)
 
         for window in [4, 8, 12, 24, 48, 96, 336]:
-            df[f"rolling_mean_{window}"] = df["call_count"].shift(1).rolling(window=window, min_periods=1).mean()
-            df[f"rolling_std_{window}"] = df["call_count"].shift(1).rolling(window=window, min_periods=1).std()
-            df[f"rolling_max_{window}"] = df["call_count"].shift(1).rolling(window=window, min_periods=1).max()
-            df[f"rolling_min_{window}"] = df["call_count"].shift(1).rolling(window=window, min_periods=1).min()
-            df[f"rolling_range_{window}"] = df[f"rolling_max_{window}"] - df[f"rolling_min_{window}"]
+            df[f"rolling_mean_{window}"] = (
+                df["call_count"].shift(1).rolling(window=window, min_periods=1).mean()
+            )
+            df[f"rolling_std_{window}"] = (
+                df["call_count"].shift(1).rolling(window=window, min_periods=1).std()
+            )
+            df[f"rolling_max_{window}"] = (
+                df["call_count"].shift(1).rolling(window=window, min_periods=1).max()
+            )
+            df[f"rolling_min_{window}"] = (
+                df["call_count"].shift(1).rolling(window=window, min_periods=1).min()
+            )
+            df[f"rolling_range_{window}"] = (
+                df[f"rolling_max_{window}"] - df[f"rolling_min_{window}"]
+            )
 
         for window in [48, 336]:
-            df[f"rolling_median_{window}"] = df["call_count"].shift(1).rolling(window=window, min_periods=1).median()
-            df[f"rolling_skew_{window}"] = df["call_count"].shift(1).rolling(window=window, min_periods=48).skew()
+            df[f"rolling_median_{window}"] = (
+                df["call_count"].shift(1).rolling(window=window, min_periods=1).median()
+            )
+            df[f"rolling_skew_{window}"] = (
+                df["call_count"].shift(1).rolling(window=window, min_periods=48).skew()
+            )
             q25 = df["call_count"].shift(1).rolling(window=window, min_periods=1).quantile(0.25)
             q75 = df["call_count"].shift(1).rolling(window=window, min_periods=1).quantile(0.75)
             df[f"rolling_iqr_{window}"] = q75 - q25
@@ -202,7 +257,9 @@ class HybridForecaster:
 
         df["hourly_trend"] = df["rolling_mean_4"] - df["rolling_mean_48"]
         df["daily_trend"] = df["rolling_mean_48"] - df["rolling_mean_336"]
-        df["weekly_trend"] = df["rolling_mean_336"] - df.get("rolling_mean_672", df["rolling_mean_336"])
+        df["weekly_trend"] = df["rolling_mean_336"] - df.get(
+            "rolling_mean_672", df["rolling_mean_336"]
+        )
 
         df["volatility_ratio"] = df["rolling_std_48"] / (df["rolling_mean_48"] + 1)
         df["momentum"] = df["ewm_mean_12"] - df["ewm_mean_48"]
@@ -212,13 +269,39 @@ class HybridForecaster:
     def _create_long_term_features(self, df):
         df = df.copy()
 
-        dow_hour_stats = df.groupby(["day_of_week", "hour", "minute"])["call_count"].agg(["mean", "std", "median"]).reset_index()
-        dow_hour_stats.columns = ["day_of_week", "hour", "minute", "hist_dow_hour_mean", "hist_dow_hour_std", "hist_dow_hour_median"]
+        dow_hour_stats = (
+            df.groupby(["day_of_week", "hour", "minute"])["call_count"]
+            .agg(["mean", "std", "median"])
+            .reset_index()
+        )
+        dow_hour_stats.columns = [
+            "day_of_week",
+            "hour",
+            "minute",
+            "hist_dow_hour_mean",
+            "hist_dow_hour_std",
+            "hist_dow_hour_median",
+        ]
         df = df.merge(dow_hour_stats, on=["day_of_week", "hour", "minute"], how="left")
 
-        month_dow_hour_stats = df.groupby(["month", "day_of_week", "hour", "minute"])["call_count"].agg(["mean", "std"]).reset_index()
-        month_dow_hour_stats.columns = ["month", "day_of_week", "hour", "minute", "hist_month_dow_hour_mean", "hist_month_dow_hour_std"]
-        df = df.merge(month_dow_hour_stats, on=["month", "day_of_week", "hour", "minute"], how="left")
+        month_dow_hour_stats = (
+            df.groupby(["month", "day_of_week", "hour", "minute"])["call_count"]
+            .agg(["mean", "std"])
+            .reset_index()
+        )
+        month_dow_hour_stats.columns = [
+            "month",
+            "day_of_week",
+            "hour",
+            "minute",
+            "hist_month_dow_hour_mean",
+            "hist_month_dow_hour_std",
+        ]
+        df = df.merge(
+            month_dow_hour_stats,
+            on=["month", "day_of_week", "hour", "minute"],
+            how="left",
+        )
 
         month_stats = df.groupby("month")["call_count"].agg(["mean", "std"]).reset_index()
         month_stats.columns = ["month", "hist_month_mean", "hist_month_std"]
@@ -241,31 +324,40 @@ class HybridForecaster:
         df = df.merge(quarter_stats, on="quarter", how="left")
 
         for window in [336, 672, 1344]:
-            df[f"rolling_mean_{window}"] = df["call_count"].shift(1).rolling(window=window, min_periods=1).mean()
-            df[f"rolling_std_{window}"] = df["call_count"].shift(1).rolling(window=window, min_periods=1).std()
+            df[f"rolling_mean_{window}"] = (
+                df["call_count"].shift(1).rolling(window=window, min_periods=1).mean()
+            )
+            df[f"rolling_std_{window}"] = (
+                df["call_count"].shift(1).rolling(window=window, min_periods=1).std()
+            )
 
         return df
 
     def _compute_historical_patterns(self, df):
         self.historical_patterns = {
-            "month_dow_hour_minute": df.groupby(["month", "day_of_week", "hour", "minute"])["call_count"]
-                .agg(["mean", "std", "median", "max", "min", "count"]).to_dict(),
+            "month_dow_hour_minute": df.groupby(["month", "day_of_week", "hour", "minute"])[
+                "call_count"
+            ]
+            .agg(["mean", "std", "median", "max", "min", "count"])
+            .to_dict(),
             "dow_hour_minute": df.groupby(["day_of_week", "hour", "minute"])["call_count"]
-                .agg(["mean", "std", "median", "max", "min", "count"]).to_dict(),
+            .agg(["mean", "std", "median", "max", "min", "count"])
+            .to_dict(),
             "month_dow_hour": df.groupby(["month", "day_of_week", "hour"])["call_count"]
-                .agg(["mean", "std", "median"]).to_dict(),
+            .agg(["mean", "std", "median"])
+            .to_dict(),
             "month_dow": df.groupby(["month", "day_of_week"])["call_count"]
-                .agg(["mean", "std"]).to_dict(),
+            .agg(["mean", "std"])
+            .to_dict(),
             "month_hour": df.groupby(["month", "hour"])["call_count"]
-                .agg(["mean", "std"]).to_dict(),
-            "month": df.groupby("month")["call_count"]
-                .agg(["mean", "std"]).to_dict(),
-            "dow": df.groupby("day_of_week")["call_count"]
-                .agg(["mean", "std"]).to_dict(),
-            "hour": df.groupby("hour")["call_count"]
-                .agg(["mean", "std"]).to_dict(),
+            .agg(["mean", "std"])
+            .to_dict(),
+            "month": df.groupby("month")["call_count"].agg(["mean", "std"]).to_dict(),
+            "dow": df.groupby("day_of_week")["call_count"].agg(["mean", "std"]).to_dict(),
+            "hour": df.groupby("hour")["call_count"].agg(["mean", "std"]).to_dict(),
             "time_slot": df.groupby(["hour", "minute"])["call_count"]
-                .agg(["mean", "std"]).to_dict(),
+            .agg(["mean", "std"])
+            .to_dict(),
             "overall_mean": df["call_count"].mean(),
             "overall_std": df["call_count"].std(),
             "overall_median": df["call_count"].median(),
@@ -291,50 +383,54 @@ class HybridForecaster:
         data = self.training_data
 
         same_time_same_dow = data[
-            (data["month"] == target_month) &
-            (data["day_of_week"] == target_dow) &
-            (data["hour"] == target_hour) &
-            (data["minute"] == target_minute)
+            (data["month"] == target_month)
+            & (data["day_of_week"] == target_dow)
+            & (data["hour"] == target_hour)
+            & (data["minute"] == target_minute)
         ]
         if len(same_time_same_dow) >= 2:
             calls = same_time_same_dow["call_count"]
             return calls.mean(), calls.std(), calls.max(), calls.min()
 
         same_month_dow_hour = data[
-            (data["month"] == target_month) &
-            (data["day_of_week"] == target_dow) &
-            (data["hour"] == target_hour)
+            (data["month"] == target_month)
+            & (data["day_of_week"] == target_dow)
+            & (data["hour"] == target_hour)
         ]
         if len(same_month_dow_hour) >= 3:
             calls = same_month_dow_hour["call_count"]
             return calls.mean(), calls.std(), calls.max(), calls.min()
 
-        adjacent_months = [(target_month - 1) if target_month > 1 else 12,
-                          target_month,
-                          (target_month + 1) if target_month < 12 else 1]
+        adjacent_months = [
+            (target_month - 1) if target_month > 1 else 12,
+            target_month,
+            (target_month + 1) if target_month < 12 else 1,
+        ]
         similar_period = data[
-            (data["month"].isin(adjacent_months)) &
-            (data["day_of_week"] == target_dow) &
-            (data["hour"] == target_hour)
+            (data["month"].isin(adjacent_months))
+            & (data["day_of_week"] == target_dow)
+            & (data["hour"] == target_hour)
         ]
         if len(similar_period) >= 5:
             calls = similar_period["call_count"]
             return calls.mean(), calls.std(), calls.max(), calls.min()
 
         same_dow_hour = data[
-            (data["day_of_week"] == target_dow) &
-            (data["hour"] == target_hour) &
-            (data["minute"] == target_minute)
+            (data["day_of_week"] == target_dow)
+            & (data["hour"] == target_hour)
+            & (data["minute"] == target_minute)
         ]
         if len(same_dow_hour) >= 3:
             calls = same_dow_hour["call_count"]
             month_factor = self._get_month_factor(target_month, data)
-            return calls.mean() * month_factor, calls.std(), calls.max() * month_factor, calls.min()
+            return (
+                calls.mean() * month_factor,
+                calls.std(),
+                calls.max() * month_factor,
+                calls.min(),
+            )
 
-        same_month_dow = data[
-            (data["month"] == target_month) &
-            (data["day_of_week"] == target_dow)
-        ]
+        same_month_dow = data[(data["month"] == target_month) & (data["day_of_week"] == target_dow)]
         if len(same_month_dow) > 0:
             calls = same_month_dow["call_count"]
             return calls.mean(), calls.std(), calls.max(), calls.min()
@@ -344,8 +440,12 @@ class HybridForecaster:
             calls = same_month["call_count"]
             return calls.mean(), calls.std(), calls.max(), calls.min()
 
-        return self.historical_patterns["overall_mean"], self.historical_patterns["overall_std"], \
-               self.historical_patterns["overall_mean"] * 1.5, 0
+        return (
+            self.historical_patterns["overall_mean"],
+            self.historical_patterns["overall_std"],
+            self.historical_patterns["overall_mean"] * 1.5,
+            0,
+        )
 
     def _get_month_factor(self, target_month, data):
         monthly_means = data.groupby("month")["call_count"].mean()
@@ -388,11 +488,13 @@ class HybridForecaster:
         print("  " + "-" * 65)
 
         status = "OK" if mean_diff_pct < 10 else "WARN"
-        print(f"  {'Mean calls/interval':<20} {train_mean:<15.2f} {test_mean:<15.2f} {mean_diff_pct:<10.1f} {status}")
+        row = f"  {'Mean calls/interval':<20} {train_mean:<15.2f} {test_mean:<15.2f}"
+        print(f"{row} {mean_diff_pct:<10.1f} {status}")
 
         std_diff_pct = abs(train_std - test_std) / train_std * 100
         status = "OK" if std_diff_pct < 15 else "WARN"
-        print(f"  {'Std calls/interval':<20} {train_std:<15.2f} {test_std:<15.2f} {std_diff_pct:<10.1f} {status}")
+        row = f"  {'Std calls/interval':<20} {train_std:<15.2f} {test_std:<15.2f}"
+        print(f"{row} {std_diff_pct:<10.1f} {status}")
 
         print("\n" + "-" * 70)
         if len(issues) == 0:
@@ -408,7 +510,10 @@ class HybridForecaster:
             print("  Optuna not available, using default parameters", flush=True)
             return None
 
-        print(f"  Running Optuna hyperparameter tuning ({n_trials} trials)...", flush=True)
+        print(
+            f"  Running Optuna hyperparameter tuning ({n_trials} trials)...",
+            flush=True,
+        )
 
         tscv = TimeSeriesSplit(n_splits=3)
 
@@ -454,7 +559,9 @@ class HybridForecaster:
                     "subsample": trial.suggest_float("subsample", 0.6, 1.0),
                     "min_samples_split": trial.suggest_int("min_samples_split", 2, 20),
                     "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 15),
-                    "max_features": trial.suggest_categorical("max_features", ["sqrt", "log2", None]),
+                    "max_features": trial.suggest_categorical(
+                        "max_features", ["sqrt", "log2", None]
+                    ),
                     "random_state": 42,
                 }
                 model = GradientBoostingRegressor(**params)
@@ -465,7 +572,9 @@ class HybridForecaster:
                     "max_depth": trial.suggest_int("max_depth", 5, 20),
                     "min_samples_split": trial.suggest_int("min_samples_split", 2, 20),
                     "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 15),
-                    "max_features": trial.suggest_categorical("max_features", ["sqrt", "log2", None]),
+                    "max_features": trial.suggest_categorical(
+                        "max_features", ["sqrt", "log2", None]
+                    ),
                     "random_state": 42,
                     "n_jobs": -1,
                 }
@@ -514,26 +623,50 @@ class HybridForecaster:
     def _build_default_model(self, model_type):
         if model_type == "xgboost" and HAS_XGBOOST:
             return XGBRegressor(
-                n_estimators=300, max_depth=8, learning_rate=0.05,
-                subsample=0.8, colsample_bytree=0.8, reg_alpha=0.1, reg_lambda=1.0,
-                random_state=42, verbosity=0, n_jobs=-1
+                n_estimators=300,
+                max_depth=8,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                reg_alpha=0.1,
+                reg_lambda=1.0,
+                random_state=42,
+                verbosity=0,
+                n_jobs=-1,
             )
         elif model_type == "lightgbm" and HAS_LIGHTGBM:
             return LGBMRegressor(
-                n_estimators=300, max_depth=8, learning_rate=0.05,
-                subsample=0.8, colsample_bytree=0.8, reg_alpha=0.1, reg_lambda=1.0,
-                random_state=42, verbosity=-1, n_jobs=-1
+                n_estimators=300,
+                max_depth=8,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                reg_alpha=0.1,
+                reg_lambda=1.0,
+                random_state=42,
+                verbosity=-1,
+                n_jobs=-1,
             )
         elif model_type == "gradient_boosting":
             return GradientBoostingRegressor(
-                n_estimators=300, max_depth=8, learning_rate=0.05,
-                min_samples_split=15, min_samples_leaf=8, subsample=0.8,
-                max_features="sqrt", random_state=42
+                n_estimators=300,
+                max_depth=8,
+                learning_rate=0.05,
+                min_samples_split=15,
+                min_samples_leaf=8,
+                subsample=0.8,
+                max_features="sqrt",
+                random_state=42,
             )
         elif model_type == "random_forest":
             return RandomForestRegressor(
-                n_estimators=200, max_depth=15, min_samples_split=10,
-                min_samples_leaf=5, max_features="sqrt", random_state=42, n_jobs=-1
+                n_estimators=200,
+                max_depth=15,
+                min_samples_split=10,
+                min_samples_leaf=5,
+                max_features="sqrt",
+                random_state=42,
+                n_jobs=-1,
             )
         elif model_type == "ridge":
             return Ridge(alpha=10.0)
@@ -575,10 +708,19 @@ class HybridForecaster:
 
         train_dates = train_df_base["interval_start"]
         test_dates = test_df_base["interval_start"]
-        print(f"  Training: {train_dates.min().strftime('%Y-%m-%d')} to {train_dates.max().strftime('%Y-%m-%d')} ({len(train_df_base):,} samples)")
-        print(f"  Testing:  {test_dates.min().strftime('%Y-%m-%d')} to {test_dates.max().strftime('%Y-%m-%d')} ({len(test_df_base):,} samples)")
+        t_min = train_dates.min().strftime("%Y-%m-%d")
+        t_max = train_dates.max().strftime("%Y-%m-%d")
+        print(f"  Training: {t_min} to {t_max} ({len(train_df_base):,} samples)")
+        t2_min = test_dates.min().strftime("%Y-%m-%d")
+        t2_max = test_dates.max().strftime("%Y-%m-%d")
+        print(f"  Testing:  {t2_min} to {t2_max} ({len(test_df_base):,} samples)")
 
-        self._verify_distribution(train_df_base, test_df_base, train_df_base["call_count"], test_df_base["call_count"])
+        self._verify_distribution(
+            train_df_base,
+            test_df_base,
+            train_df_base["call_count"],
+            test_df_base["call_count"],
+        )
 
         print("\n" + "-" * 70)
         print("Training SHORT-TERM model (for predictions < 1 week ahead)")
@@ -589,39 +731,132 @@ class HybridForecaster:
         df_short_test = df_short_full[df_short_full["year"] >= test_year].copy()
 
         self.short_term_features = [
-            "hour", "minute", "day_of_week", "day_of_month", "month", "quarter", "time_slot",
-            "is_open", "is_business_hours", "is_morning_peak", "is_afternoon_peak",
-            "is_early_morning", "is_lunch_hour", "is_late_afternoon", "is_monday", "is_friday", "is_mid_week",
-            "is_tax_season", "is_tax_deadline", "is_tax_deadline_week", "is_tax_crunch",
-            "is_extension_deadline", "is_quarterly_deadline", "is_year_end", "is_month_end",
-            "is_month_start", "is_w2_season", "is_holiday", "is_day_before_holiday", "is_day_after_holiday",
-            "days_to_tax_deadline", "tax_urgency",
-            "hour_sin", "hour_cos", "dow_sin", "dow_cos", "month_sin", "month_cos",
-            "time_slot_sin", "time_slot_cos", "week_sin", "week_cos",
-            "lag_1", "lag_2", "lag_3", "lag_4", "lag_6", "lag_8", "lag_12", "lag_24",
-            "lag_48", "lag_96", "lag_144", "lag_336", "lag_672",
-            "lag_same_time_yesterday", "lag_same_time_last_week", "lag_same_time_2weeks",
-            "diff_1", "diff_48", "diff_336",
-            "rolling_mean_4", "rolling_std_4", "rolling_max_4", "rolling_min_4", "rolling_range_4",
-            "rolling_mean_8", "rolling_std_8", "rolling_max_8", "rolling_min_8", "rolling_range_8",
-            "rolling_mean_12", "rolling_std_12", "rolling_max_12", "rolling_min_12", "rolling_range_12",
-            "rolling_mean_24", "rolling_std_24", "rolling_max_24", "rolling_min_24", "rolling_range_24",
-            "rolling_mean_48", "rolling_std_48", "rolling_max_48", "rolling_min_48", "rolling_range_48",
-            "rolling_mean_96", "rolling_std_96", "rolling_max_96", "rolling_min_96", "rolling_range_96",
-            "rolling_mean_336", "rolling_std_336", "rolling_max_336", "rolling_min_336", "rolling_range_336",
-            "rolling_median_48", "rolling_median_336",
-            "rolling_skew_48", "rolling_skew_336",
-            "rolling_iqr_48", "rolling_iqr_336",
-            "ewm_mean_12", "ewm_std_12", "ewm_mean_24", "ewm_std_24",
-            "ewm_mean_48", "ewm_std_48", "ewm_mean_96", "ewm_std_96",
-            "hourly_trend", "daily_trend", "weekly_trend",
-            "volatility_ratio", "momentum",
-            "turbotax_ratio", "quickbooks_ratio",
+            "hour",
+            "minute",
+            "day_of_week",
+            "day_of_month",
+            "month",
+            "quarter",
+            "time_slot",
+            "is_open",
+            "is_business_hours",
+            "is_morning_peak",
+            "is_afternoon_peak",
+            "is_early_morning",
+            "is_lunch_hour",
+            "is_late_afternoon",
+            "is_monday",
+            "is_friday",
+            "is_mid_week",
+            "is_tax_season",
+            "is_tax_deadline",
+            "is_tax_deadline_week",
+            "is_tax_crunch",
+            "is_extension_deadline",
+            "is_quarterly_deadline",
+            "is_year_end",
+            "is_month_end",
+            "is_month_start",
+            "is_w2_season",
+            "is_holiday",
+            "is_day_before_holiday",
+            "is_day_after_holiday",
+            "days_to_tax_deadline",
+            "tax_urgency",
+            "hour_sin",
+            "hour_cos",
+            "dow_sin",
+            "dow_cos",
+            "month_sin",
+            "month_cos",
+            "time_slot_sin",
+            "time_slot_cos",
+            "week_sin",
+            "week_cos",
+            "lag_1",
+            "lag_2",
+            "lag_3",
+            "lag_4",
+            "lag_6",
+            "lag_8",
+            "lag_12",
+            "lag_24",
+            "lag_48",
+            "lag_96",
+            "lag_144",
+            "lag_336",
+            "lag_672",
+            "lag_same_time_yesterday",
+            "lag_same_time_last_week",
+            "lag_same_time_2weeks",
+            "diff_1",
+            "diff_48",
+            "diff_336",
+            "rolling_mean_4",
+            "rolling_std_4",
+            "rolling_max_4",
+            "rolling_min_4",
+            "rolling_range_4",
+            "rolling_mean_8",
+            "rolling_std_8",
+            "rolling_max_8",
+            "rolling_min_8",
+            "rolling_range_8",
+            "rolling_mean_12",
+            "rolling_std_12",
+            "rolling_max_12",
+            "rolling_min_12",
+            "rolling_range_12",
+            "rolling_mean_24",
+            "rolling_std_24",
+            "rolling_max_24",
+            "rolling_min_24",
+            "rolling_range_24",
+            "rolling_mean_48",
+            "rolling_std_48",
+            "rolling_max_48",
+            "rolling_min_48",
+            "rolling_range_48",
+            "rolling_mean_96",
+            "rolling_std_96",
+            "rolling_max_96",
+            "rolling_min_96",
+            "rolling_range_96",
+            "rolling_mean_336",
+            "rolling_std_336",
+            "rolling_max_336",
+            "rolling_min_336",
+            "rolling_range_336",
+            "rolling_median_48",
+            "rolling_median_336",
+            "rolling_skew_48",
+            "rolling_skew_336",
+            "rolling_iqr_48",
+            "rolling_iqr_336",
+            "ewm_mean_12",
+            "ewm_std_12",
+            "ewm_mean_24",
+            "ewm_std_24",
+            "ewm_mean_48",
+            "ewm_std_48",
+            "ewm_mean_96",
+            "ewm_std_96",
+            "hourly_trend",
+            "daily_trend",
+            "weekly_trend",
+            "volatility_ratio",
+            "momentum",
+            "turbotax_ratio",
+            "quickbooks_ratio",
         ]
 
-        self.short_term_features = [f for f in self.short_term_features if f in df_short_train.columns]
+        self.short_term_features = [
+            f for f in self.short_term_features if f in df_short_train.columns
+        ]
 
-        df_short_train_clean = df_short_train.dropna(subset=self.short_term_features + ["call_count"])
+        df_short_train_clean = df_short_train.dropna(
+            subset=self.short_term_features + ["call_count"]
+        )
         df_short_test_clean = df_short_test.dropna(subset=self.short_term_features + ["call_count"])
 
         X_train = df_short_train_clean[self.short_term_features]
@@ -648,7 +883,9 @@ class HybridForecaster:
             print("\n  Hyperparameter tuning for short-term models:")
             for model_type in model_types_to_tune:
                 print(f"\n    Tuning {model_type}...")
-                best_params = self._tune_hyperparameters(X_train, y_train, model_type, n_trials=n_trials)
+                best_params = self._tune_hyperparameters(
+                    X_train, y_train, model_type, n_trials=n_trials
+                )
                 self.best_params[f"short_term_{model_type}"] = best_params
 
         model_scores = []
@@ -661,10 +898,9 @@ class HybridForecaster:
             model_scores.append((model_type, mae, model))
 
             if hasattr(model, "feature_importances_"):
-                self.feature_importance[f"short_term_{model_type}"] = dict(zip(
-                    self.short_term_features,
-                    model.feature_importances_
-                ))
+                self.feature_importance[f"short_term_{model_type}"] = dict(
+                    zip(self.short_term_features, model.feature_importances_)
+                )
 
         for model_type in ["ridge", "elasticnet"]:
             model = self._build_default_model(model_type)
@@ -676,7 +912,7 @@ class HybridForecaster:
         model_scores.sort(key=lambda x: x[1])
         best_models = model_scores[:3]
 
-        print(f"\n  Model performance on test set:")
+        print("\n  Model performance on test set:")
         for name, mae, _ in model_scores:
             print(f"    {name}: MAE = {mae:.4f}")
 
@@ -699,25 +935,71 @@ class HybridForecaster:
         df_long_test = df_long_full[df_long_full["year"] >= test_year].copy()
 
         self.long_term_features = [
-            "hour", "minute", "day_of_week", "day_of_month", "month", "quarter", "week_of_year", "time_slot",
-            "is_open", "is_business_hours", "is_morning_peak", "is_afternoon_peak",
-            "is_early_morning", "is_lunch_hour", "is_late_afternoon", "is_monday", "is_friday", "is_mid_week",
-            "is_tax_season", "is_tax_deadline", "is_tax_deadline_week", "is_tax_crunch",
-            "is_extension_deadline", "is_quarterly_deadline", "is_year_end", "is_month_end",
-            "is_month_start", "is_w2_season", "is_holiday",
-            "days_to_tax_deadline", "days_to_extension", "tax_urgency",
-            "hour_sin", "hour_cos", "dow_sin", "dow_cos", "month_sin", "month_cos",
-            "doy_sin", "doy_cos", "week_sin", "week_cos", "time_slot_sin", "time_slot_cos",
-            "hist_dow_hour_mean", "hist_dow_hour_std", "hist_dow_hour_median",
-            "hist_month_dow_hour_mean", "hist_month_dow_hour_std",
-            "hist_month_mean", "hist_month_std",
-            "hist_dow_mean", "hist_dow_std",
-            "hist_hour_mean", "hist_hour_std",
-            "hist_time_slot_mean", "hist_quarter_mean",
-            "rolling_mean_336", "rolling_std_336",
-            "rolling_mean_672", "rolling_std_672",
-            "rolling_mean_1344", "rolling_std_1344",
-            "turbotax_ratio", "quickbooks_ratio",
+            "hour",
+            "minute",
+            "day_of_week",
+            "day_of_month",
+            "month",
+            "quarter",
+            "week_of_year",
+            "time_slot",
+            "is_open",
+            "is_business_hours",
+            "is_morning_peak",
+            "is_afternoon_peak",
+            "is_early_morning",
+            "is_lunch_hour",
+            "is_late_afternoon",
+            "is_monday",
+            "is_friday",
+            "is_mid_week",
+            "is_tax_season",
+            "is_tax_deadline",
+            "is_tax_deadline_week",
+            "is_tax_crunch",
+            "is_extension_deadline",
+            "is_quarterly_deadline",
+            "is_year_end",
+            "is_month_end",
+            "is_month_start",
+            "is_w2_season",
+            "is_holiday",
+            "days_to_tax_deadline",
+            "days_to_extension",
+            "tax_urgency",
+            "hour_sin",
+            "hour_cos",
+            "dow_sin",
+            "dow_cos",
+            "month_sin",
+            "month_cos",
+            "doy_sin",
+            "doy_cos",
+            "week_sin",
+            "week_cos",
+            "time_slot_sin",
+            "time_slot_cos",
+            "hist_dow_hour_mean",
+            "hist_dow_hour_std",
+            "hist_dow_hour_median",
+            "hist_month_dow_hour_mean",
+            "hist_month_dow_hour_std",
+            "hist_month_mean",
+            "hist_month_std",
+            "hist_dow_mean",
+            "hist_dow_std",
+            "hist_hour_mean",
+            "hist_hour_std",
+            "hist_time_slot_mean",
+            "hist_quarter_mean",
+            "rolling_mean_336",
+            "rolling_std_336",
+            "rolling_mean_672",
+            "rolling_std_672",
+            "rolling_mean_1344",
+            "rolling_std_1344",
+            "turbotax_ratio",
+            "quickbooks_ratio",
         ]
 
         self.long_term_features = [f for f in self.long_term_features if f in df_long_train.columns]
@@ -742,7 +1024,9 @@ class HybridForecaster:
             print("\n  Hyperparameter tuning for long-term models:")
             for model_type in model_types_to_tune:
                 print(f"\n    Tuning {model_type}...")
-                best_params = self._tune_hyperparameters(X_train, y_train, model_type, n_trials=n_trials)
+                best_params = self._tune_hyperparameters(
+                    X_train, y_train, model_type, n_trials=n_trials
+                )
                 self.best_params[f"long_term_{model_type}"] = best_params
 
         model_scores = []
@@ -755,10 +1039,9 @@ class HybridForecaster:
             model_scores.append((model_type, mae, model))
 
             if hasattr(model, "feature_importances_"):
-                self.feature_importance[f"long_term_{model_type}"] = dict(zip(
-                    self.long_term_features,
-                    model.feature_importances_
-                ))
+                self.feature_importance[f"long_term_{model_type}"] = dict(
+                    zip(self.long_term_features, model.feature_importances_)
+                )
 
         for model_type in ["ridge", "elasticnet"]:
             model = self._build_default_model(model_type)
@@ -770,7 +1053,7 @@ class HybridForecaster:
         model_scores.sort(key=lambda x: x[1])
         best_models = model_scores[:3]
 
-        print(f"\n  Model performance on test set:")
+        print("\n  Model performance on test set:")
         for name, mae, _ in model_scores:
             print(f"    {name}: MAE = {mae:.4f}")
 
@@ -830,13 +1113,25 @@ class HybridForecaster:
         features["time_slot"] = target_dt.hour * 2 + (target_dt.minute // 30)
 
         features["is_weekend"] = int(features["day_of_week"] >= 5)
-        features["is_business_hours"] = int((5 <= features["hour"] < 17) and features["day_of_week"] < 5)
+        features["is_business_hours"] = int(
+            (5 <= features["hour"] < 17) and features["day_of_week"] < 5
+        )
         features["is_open"] = features["is_business_hours"]
-        features["is_morning_peak"] = int((9 <= features["hour"] < 12) and features["day_of_week"] < 5)
-        features["is_afternoon_peak"] = int((13 <= features["hour"] < 16) and features["day_of_week"] < 5)
-        features["is_early_morning"] = int((5 <= features["hour"] < 8) and features["day_of_week"] < 5)
-        features["is_lunch_hour"] = int((12 <= features["hour"] <= 13) and features["day_of_week"] < 5)
-        features["is_late_afternoon"] = int((15 <= features["hour"] < 17) and features["day_of_week"] < 5)
+        features["is_morning_peak"] = int(
+            (9 <= features["hour"] < 12) and features["day_of_week"] < 5
+        )
+        features["is_afternoon_peak"] = int(
+            (13 <= features["hour"] < 16) and features["day_of_week"] < 5
+        )
+        features["is_early_morning"] = int(
+            (5 <= features["hour"] < 8) and features["day_of_week"] < 5
+        )
+        features["is_lunch_hour"] = int(
+            (12 <= features["hour"] <= 13) and features["day_of_week"] < 5
+        )
+        features["is_late_afternoon"] = int(
+            (15 <= features["hour"] < 17) and features["day_of_week"] < 5
+        )
         features["is_monday"] = int(features["day_of_week"] == 0)
         features["is_friday"] = int(features["day_of_week"] == 4)
         features["is_mid_week"] = int(1 <= features["day_of_week"] <= 3)
@@ -856,25 +1151,46 @@ class HybridForecaster:
 
         features["is_tax_season"] = int(1 <= features["month"] <= 4)
         features["is_tax_deadline"] = int(features["month"] == 4 and features["day_of_month"] <= 15)
-        features["is_tax_deadline_week"] = int(features["month"] == 4 and 10 <= features["day_of_month"] <= 17)
-        features["is_tax_crunch"] = int(features["month"] == 4 and 1 <= features["day_of_month"] <= 15)
-        features["is_extension_deadline"] = int(features["month"] == 10 and features["day_of_month"] <= 15)
+        features["is_tax_deadline_week"] = int(
+            features["month"] == 4 and 10 <= features["day_of_month"] <= 17
+        )
+        features["is_tax_crunch"] = int(
+            features["month"] == 4 and 1 <= features["day_of_month"] <= 15
+        )
+        features["is_extension_deadline"] = int(
+            features["month"] == 10 and features["day_of_month"] <= 15
+        )
         features["is_quarterly_deadline"] = int(
-            (features["month"] == 1 and features["day_of_month"] <= 15) or
-            (features["month"] == 4 and features["day_of_month"] <= 15) or
-            (features["month"] == 6 and features["day_of_month"] <= 15) or
-            (features["month"] == 9 and features["day_of_month"] <= 15)
+            (features["month"] == 1 and features["day_of_month"] <= 15)
+            or (features["month"] == 4 and features["day_of_month"] <= 15)
+            or (features["month"] == 6 and features["day_of_month"] <= 15)
+            or (features["month"] == 9 and features["day_of_month"] <= 15)
         )
         features["is_year_end"] = int(features["month"] == 12)
         features["is_month_end"] = int(features["day_of_month"] >= 28)
         features["is_month_start"] = int(features["day_of_month"] <= 5)
         features["is_w2_season"] = int(features["month"] in [1, 2])
 
-        features["days_to_tax_deadline"] = self._days_to_deadline(features["month"], features["day_of_month"], 4, 15)
-        features["days_to_extension"] = self._days_to_deadline(features["month"], features["day_of_month"], 10, 15)
+        features["days_to_tax_deadline"] = self._days_to_deadline(
+            features["month"], features["day_of_month"], 4, 15
+        )
+        features["days_to_extension"] = self._days_to_deadline(
+            features["month"], features["day_of_month"], 10, 15
+        )
         features["tax_urgency"] = max(0, min(1, 1 - features["days_to_tax_deadline"] / 120))
 
-        us_holidays = [(1,1), (1,15), (2,19), (5,27), (7,4), (9,2), (10,14), (11,11), (11,28), (12,25)]
+        us_holidays = [
+            (1, 1),
+            (1, 15),
+            (2, 19),
+            (5, 27),
+            (7, 4),
+            (9, 2),
+            (10, 14),
+            (11, 11),
+            (11, 28),
+            (12, 25),
+        ]
         features["is_holiday"] = int((features["month"], features["day_of_month"]) in us_holidays)
         features["is_day_before_holiday"] = 0
         features["is_day_after_holiday"] = 0
@@ -897,7 +1213,9 @@ class HybridForecaster:
         if not base_features["is_open"]:
             return 0
 
-        avg_calls, std_calls, max_calls, min_calls = self._get_analogous_historical_data(target_datetime)
+        avg_calls, std_calls, max_calls, min_calls = self._get_analogous_historical_data(
+            target_datetime
+        )
 
         if std_calls is None or std_calls <= 0:
             std_calls = avg_calls * 0.25 if avg_calls else 1
@@ -921,7 +1239,9 @@ class HybridForecaster:
                 features[f"rolling_std_{window}"] = std_calls
                 features[f"rolling_max_{window}"] = max_calls if max_calls else avg_calls * 1.3
                 features[f"rolling_min_{window}"] = min_calls if min_calls else avg_calls * 0.7
-                features[f"rolling_range_{window}"] = (max_calls or avg_calls * 1.3) - (min_calls or avg_calls * 0.7)
+                features[f"rolling_range_{window}"] = (max_calls or avg_calls * 1.3) - (
+                    min_calls or avg_calls * 0.7
+                )
 
             for window in [48, 336]:
                 features[f"rolling_median_{window}"] = avg_calls
@@ -955,7 +1275,9 @@ class HybridForecaster:
             month_key = features["month"]
             if month_key in self.historical_patterns["month"]["mean"]:
                 features["hist_month_mean"] = self.historical_patterns["month"]["mean"][month_key]
-                features["hist_month_std"] = self.historical_patterns["month"]["std"].get(month_key, 1)
+                features["hist_month_std"] = self.historical_patterns["month"]["std"].get(
+                    month_key, 1
+                )
             else:
                 features["hist_month_mean"] = self.historical_patterns["overall_mean"]
                 features["hist_month_std"] = self.historical_patterns["overall_std"]
@@ -1005,18 +1327,22 @@ class HybridForecaster:
 
         for _ in range(48):
             prediction = self.predict(current, reference_date)
-            results.append({
-                "interval_start": current,
-                "predicted_calls": prediction,
-                "model_used": model_used,
-            })
+            results.append(
+                {
+                    "interval_start": current,
+                    "predicted_calls": prediction,
+                    "model_used": model_used,
+                }
+            )
             current += timedelta(minutes=30)
 
         return pd.DataFrame(results)
 
     def predict_with_confidence(self, target_datetime, reference_date=None, confidence_level=0.95):
         prediction = self.predict(target_datetime, reference_date)
-        avg_calls, std_calls, _, _ = self._get_analogous_historical_data(pd.to_datetime(target_datetime))
+        avg_calls, std_calls, _, _ = self._get_analogous_historical_data(
+            pd.to_datetime(target_datetime)
+        )
 
         if std_calls and std_calls > 0:
             z_score = 1.96 if confidence_level == 0.95 else 1.645
@@ -1031,26 +1357,29 @@ class HybridForecaster:
             "prediction": prediction,
             "lower_bound": lower,
             "upper_bound": upper,
-            "confidence_level": confidence_level
+            "confidence_level": confidence_level,
         }
 
     def save_model(self, filepath):
         with open(filepath, "wb") as f:
-            pickle.dump({
-                "short_term_model": self.short_term_model,
-                "long_term_model": self.long_term_model,
-                "short_term_scaler": self.short_term_scaler,
-                "long_term_scaler": self.long_term_scaler,
-                "short_term_features": self.short_term_features,
-                "long_term_features": self.long_term_features,
-                "historical_patterns": self.historical_patterns,
-                "training_data": self.training_data,
-                "max_training_date": self.max_training_date,
-                "short_term_threshold_days": self.short_term_threshold_days,
-                "volume_quantiles": self.volume_quantiles,
-                "feature_importance": self.feature_importance,
-                "best_params": self.best_params,
-            }, f)
+            pickle.dump(
+                {
+                    "short_term_model": self.short_term_model,
+                    "long_term_model": self.long_term_model,
+                    "short_term_scaler": self.short_term_scaler,
+                    "long_term_scaler": self.long_term_scaler,
+                    "short_term_features": self.short_term_features,
+                    "long_term_features": self.long_term_features,
+                    "historical_patterns": self.historical_patterns,
+                    "training_data": self.training_data,
+                    "max_training_date": self.max_training_date,
+                    "short_term_threshold_days": self.short_term_threshold_days,
+                    "volume_quantiles": self.volume_quantiles,
+                    "feature_importance": self.feature_importance,
+                    "best_params": self.best_params,
+                },
+                f,
+            )
         print(f"Model saved to {filepath}")
 
     def load_model(self, filepath):
@@ -1076,10 +1405,21 @@ class HybridForecaster:
 if __name__ == "__main__":
     import sys
     from pathlib import Path
-    sys.stdout.reconfigure(line_buffering=True)
 
-    _DATA = Path(__file__).resolve().parent.parent.parent.parent / "data" / "interim" / "mock_intuit_2year_data.csv"
-    _MODEL_OUT = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "hybrid_forecast_model.pkl"
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+
+    _DATA = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "data"
+        / "interim"
+        / "mock_intuit_2year_data.csv"
+    )
+    _MODEL_OUT = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "scripts"
+        / "hybrid_forecast_model.pkl"
+    )
 
     print("Starting training...", flush=True)
     forecaster = HybridForecaster()

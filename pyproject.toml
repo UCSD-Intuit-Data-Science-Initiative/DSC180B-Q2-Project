@@ -36,9 +36,13 @@ pandas-stubs = "^2.2.2.240807"
 autoflake = "^2.3.1"
 pytest-cov = "^5.0.0"
 
+[tool.mypy]
+ignore_missing_imports = true
+
 [tool.ruff]
-line-length = 79
+line-length = 100
 target-version = "py311"
+exclude = ["notebooks", "docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

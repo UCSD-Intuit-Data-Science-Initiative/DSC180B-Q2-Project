@@ -5,7 +5,6 @@ import pandas as pd
 
 
 class AgentAnalytics:
-
     _PERFORMANCE_WEIGHTS = {
         "resolution_rate": 0.30,
         "fcr_rate": 0.20,
@@ -42,8 +41,14 @@ class AgentAnalytics:
             self._session_stats = pd.DataFrame()
             return
 
-        cols = ["tax_year", "expert_assigned_id", "first_call_resolution",
-                "transfer_count", "hold_time_seconds", "duration_of_call_minutes"]
+        cols = [
+            "tax_year",
+            "expert_assigned_id",
+            "first_call_resolution",
+            "transfer_count",
+            "hold_time_seconds",
+            "duration_of_call_minutes",
+        ]
         d3 = pd.read_parquet(d3_path, columns=cols)
         if tax_year is not None:
             d3 = d3[d3["tax_year"] == tax_year]
@@ -76,9 +81,14 @@ class AgentAnalytics:
             self._interval_stats = pd.DataFrame()
             return
 
-        cols = ["tax_year", "expert_id", "total_handle_time_seconds",
-                "total_available_time_seconds", "occupancy_pct",
-                "activity_break_meal_seconds"]
+        cols = [
+            "tax_year",
+            "expert_id",
+            "total_handle_time_seconds",
+            "total_available_time_seconds",
+            "occupancy_pct",
+            "activity_break_meal_seconds",
+        ]
         d4 = pd.read_parquet(d4_path, columns=cols)
         if tax_year is not None:
             d4 = d4[d4["tax_year"] == tax_year]
@@ -96,7 +106,10 @@ class AgentAnalytics:
         )
         self._interval_stats["utilization"] = (
             self._interval_stats["total_handle_time"]
-            / (self._interval_stats["total_handle_time"] + self._interval_stats["total_available_time"]).clip(lower=1)
+            / (
+                self._interval_stats["total_handle_time"]
+                + self._interval_stats["total_available_time"]
+            ).clip(lower=1)
             * 100
         )
 
@@ -119,7 +132,11 @@ class AgentAnalytics:
         df["mean_occupancy"] = df["mean_occupancy"].fillna(50)
 
         handle_median = df["average_handle_time_seconds"].median()
-        df["efficiency_score"] = np.clip(handle_median / df["average_handle_time_seconds"].clip(lower=1) * 100, 0, 150)
+        df["efficiency_score"] = np.clip(
+            handle_median / df["average_handle_time_seconds"].clip(lower=1) * 100,
+            0,
+            150,
+        )
 
         df["occupancy_score"] = df["mean_occupancy"].clip(upper=100)
 
@@ -140,21 +157,21 @@ class AgentAnalytics:
             df = df[df["expert_segment"] == segment]
 
         display_cols = [
-            "expert_id", "expert_segment", "business_segment",
-            "contacts", "answered_contacts",
-            "resolution_rate", "transfer_rate",
-            "average_handle_time_seconds", "average_hold_time_seconds",
+            "expert_id",
+            "expert_segment",
+            "business_segment",
+            "contacts",
+            "answered_contacts",
+            "resolution_rate",
+            "transfer_rate",
+            "average_handle_time_seconds",
+            "average_hold_time_seconds",
             "composite_score",
         ]
         extra = ["fcr_rate", "median_hold", "mean_occupancy", "utilization"]
         display_cols += [c for c in extra if c in df.columns]
 
-        return (
-            df[display_cols]
-            .sort_values(sort_by, ascending=False)
-            .head(n)
-            .reset_index(drop=True)
-        )
+        return df[display_cols].sort_values(sort_by, ascending=False).head(n).reset_index(drop=True)
 
     def segment_summary(self):
         return (
