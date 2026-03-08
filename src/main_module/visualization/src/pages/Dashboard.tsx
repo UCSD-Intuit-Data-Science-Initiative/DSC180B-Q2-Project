@@ -18,9 +18,6 @@ interface TopAgent {
   composite_score: number;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
-
-// Helper function to replicate the volume logic from DemandChart
 function seededRandom(seed: number) {
     const x = Math.sin(seed) * 10000;
     return x - Math.floor(x);
@@ -623,7 +620,7 @@ export default function Dashboard() {
 
                  {metricsError && (
                    <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-                     <p className="text-amber-800 dark:text-amber-200 text-sm">{metricsError}</p>
+                     <p className="text-amber-800 dark:text-amber-200 text-sm">Showing estimated data (metrics API unavailable)</p>
                    </div>
                  )}
 
@@ -631,7 +628,7 @@ export default function Dashboard() {
                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <MetricCard
                       title="Service Level (SLA)"
-                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metricsError ? 'Error' : metrics ? `${metrics.avg_sla_compliance.toFixed(1)}%` : '—') : weeklyMetrics.sla}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? `${metrics.avg_sla_compliance.toFixed(1)}%` : weeklyMetrics.sla) : weeklyMetrics.sla}
                       change={weeklyMetrics.slaChange}
                       isPositive={weeklyMetrics.slaPositive}
                       icon={Target}
@@ -640,7 +637,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Avg. Waiting Time"
-                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metricsError ? 'Error' : metrics ? `${Math.round(metrics.avg_wait_time)}s` : '—') : weeklyMetrics.waitTime}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? `${Math.round(metrics.avg_wait_time)}s` : weeklyMetrics.waitTime) : weeklyMetrics.waitTime}
                       change={weeklyMetrics.waitChange}
                       isPositive={weeklyMetrics.waitPositive}
                       icon={Clock}
@@ -649,7 +646,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Avg. Agent Occupancy"
-                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metricsError ? 'Error' : metrics ? `${metrics.avg_occupancy.toFixed(1)}%` : '—') : weeklyMetrics.occupancy}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? `${metrics.avg_occupancy.toFixed(1)}%` : weeklyMetrics.occupancy) : weeklyMetrics.occupancy}
                       change={weeklyMetrics.occupancyChange}
                       isPositive={weeklyMetrics.occupancyPositive}
                       icon={TrendingUp}
@@ -658,7 +655,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Total Calls Processed"
-                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metricsError ? 'Error' : metrics ? metrics.total_calls.toLocaleString() : '—') : weeklyMetrics.totalCalls}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? metrics.total_calls.toLocaleString() : weeklyMetrics.totalCalls) : weeklyMetrics.totalCalls}
                       change={weeklyMetrics.callsChange}
                       isPositive={weeklyMetrics.callsPositive}
                       icon={Phone}

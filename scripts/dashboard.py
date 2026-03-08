@@ -15,16 +15,17 @@ _SRC = _ROOT / "src"
 sys.path.insert(0, str(_SRC))
 sys.path.insert(0, SCRIPT_DIR)  # keeps demand_forecasting_model importable
 
-from main_module.workforce import (
-    CallCenterEmulator,
-    EmulatorConfig,
-    HybridForecaster,
-)
 from demand_forecasting_model import CallDemandForecaster
 from staffing_optimizer import (
     OptimizationThresholds,
     ShiftConstraints,
     StaffingOptimizer,
+)
+
+from main_module.workforce import (
+    CallCenterEmulator,
+    EmulatorConfig,
+    HybridForecaster,
 )
 
 try:
