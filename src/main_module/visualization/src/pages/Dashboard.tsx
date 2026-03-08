@@ -2,10 +2,23 @@ import { useState, useEffect, useCallback } from 'react';
 import { MetricCard } from '../components/MetricCard';
 import { WorkforceManagementPanel } from '../components/WorkforceManagementPanel';
 import { DemandForecastChart } from '../components/DemandChart';
-import { Clock, Target, TrendingUp, Trophy, ArrowRight, Phone, Calendar, CalendarClock } from 'lucide-react';
+import { Clock, Target, TrendingUp, Trophy, ArrowRight, Phone, Calendar, CalendarClock, Loader2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { fetchMetrics, DayMetrics } from '../lib/api';
+
+interface TopAgent {
+  expert_id: string;
+  name: string;
+  segment: string;
+  contacts: number;
+  aht: string;
+  utilization: number;
+  resolution_rate: number;
+  composite_score: number;
+}
+
+const API_BASE = 'http://localhost:8000';
 
 // Helper function to replicate the volume logic from DemandChart
 function seededRandom(seed: number) {
@@ -56,6 +69,8 @@ function getDailyBreakdownData(date: Date) {
 export default function Dashboard() {
   const [selectedDayVolume, setSelectedDayVolume] = useState<number | undefined>(undefined);
   const [metrics, setMetrics] = useState<DayMetrics | null>(null);
+  const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
 
   // State for simulator targets
   const [simulatorTargets, setSimulatorTargets] = useState({
@@ -85,6 +100,25 @@ export default function Dashboard() {
       .then(setMetrics)
       .catch(console.error);
   }, [selectedDay]);
+
+  // Fetch top performing agents
+  useEffect(() => {
+    const fetchTopAgents = async () => {
+      try {
+        setAgentsLoading(true);
+        const response = await fetch(`${API_BASE}/api/agents?n=4&sort_by=composite_score`);
+        if (response.ok) {
+          const data = await response.json();
+          setTopAgents(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch top agents:', err);
+      } finally {
+        setAgentsLoading(false);
+      }
+    };
+    fetchTopAgents();
+  }, []);
 
   // Initialize selectedDayVolume with today's volume on mount
   useEffect(() => {
@@ -666,45 +700,61 @@ export default function Dashboard() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50/50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 font-medium border-b border-slate-200 dark:border-slate-700">
                     <tr>
-                      <th className="px-6 py-4">Agent Name</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4">Calls Taken</th>
+                      <th className="px-6 py-4">Agent ID</th>
+                      <th className="px-6 py-4">Segment</th>
+                      <th className="px-6 py-4">Contacts</th>
                       <th className="px-6 py-4">Average Handle Time</th>
                       <th className="px-6 py-4">Utilization Rate</th>
-                      <th className="px-6 py-4">Service Level (SLA)</th>
+                      <th className="px-6 py-4">Score</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100/50 dark:divide-slate-700/50">
-                    {[
-                      { name: 'Jackie Wang', status: 'Online', calls: 45, aht: '3m 12s', utilization: '87%', sla: '98%' },
-                      { name: 'Sarah He', status: 'In Call', calls: 38, aht: '2m 55s', utilization: '84%', sla: '96%' },
-                      { name: 'Hao Zhang', status: 'Break', calls: 41, aht: '3m 05s', utilization: '86%', sla: '94%' },
-                      { name: 'Sophia Fang', status: 'Online', calls: 32, aht: '3m 40s', utilization: '82%', sla: '97%' },
-                    ].map((agent, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer">
-                        <td className="px-6 py-4">
-                          <Link
-                            to={`/agent/${encodeURIComponent(agent.name)}`}
-                            className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
-                          >
-                            {agent.name}
-                          </Link>
+                    {agentsLoading ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-8 text-center">
+                          <div className="flex items-center justify-center space-x-2 text-slate-500 dark:text-slate-400">
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <span>Loading agents...</span>
+                          </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            agent.status === 'Online' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400' :
-                            agent.status === 'In Call' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400' :
-                            'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400'
-                          }`}>
-                            {agent.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.calls}</td>
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.aht}</td>
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.utilization}</td>
-                        <td className="px-6 py-4 text-slate-900 dark:text-white font-bold">{agent.sla}</td>
                       </tr>
-                    ))}
+                    ) : topAgents.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">
+                          No agent data available
+                        </td>
+                      </tr>
+                    ) : (
+                      topAgents.map((agent) => (
+                        <tr key={agent.expert_id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer">
+                          <td className="px-6 py-4">
+                            <Link
+                              to={`/agent/${encodeURIComponent(agent.expert_id)}`}
+                              className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                            >
+                              {agent.expert_id}
+                            </Link>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400">
+                              {agent.segment}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.contacts.toLocaleString()}</td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.aht}</td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.utilization.toFixed(1)}%</td>
+                          <td className="px-6 py-4">
+                            <span className={`font-bold ${
+                              agent.composite_score >= 100 ? 'text-green-600 dark:text-green-400' :
+                              agent.composite_score >= 80 ? 'text-blue-600 dark:text-blue-400' :
+                              'text-slate-900 dark:text-white'
+                            }`}>
+                              {agent.composite_score.toFixed(1)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>

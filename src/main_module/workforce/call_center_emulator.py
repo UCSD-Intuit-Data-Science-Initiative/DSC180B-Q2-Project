@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 
@@ -48,7 +49,9 @@ class EmulatorMetrics:
 
 
 class CallCenterEmulator:
-    def __init__(self, config: EmulatorConfig = None, model: str = "erlang_a"):
+    def __init__(
+        self, config: Optional[EmulatorConfig] = None, model: str = "erlang_a"
+    ):
         self.config = config or EmulatorConfig()
         self.model = model
 
@@ -58,16 +61,16 @@ class CallCenterEmulator:
         if traffic_intensity <= 0:
             return 0.0
 
-        # Vectorised O(n) implementation replacing the previous O(n²) Python loop.
-        # log(A^k / k!) for k = 0..N computed via cumulative log-factorial.
+        # Vectorised O(n) replacing O(n²) loop.
+        # log(A^k / k!) for k=0..N via cumulative log-factorial.
         k = np.arange(num_agents + 1, dtype=float)
         log_fact = np.zeros(num_agents + 1)
         if num_agents > 0:
             log_fact[1:] = np.cumsum(np.log(np.arange(1, num_agents + 1)))
 
         log_A = np.log(traffic_intensity)
-        log_terms = k * log_A - log_fact          # shape: (num_agents+1,)
-        log_numerator = log_terms[-1]             # term for k = num_agents
+        log_terms = k * log_A - log_fact  # shape: (num_agents+1,)
+        log_numerator = log_terms[-1]  # term for k = num_agents
 
         max_log = np.max(log_terms)
         log_denominator = max_log + np.log(np.sum(np.exp(log_terms - max_log)))
@@ -256,7 +259,7 @@ class CallCenterEmulator:
         self,
         num_experts: int,
         incoming_calls: int,
-        avg_handle_time: float = None,
+        avg_handle_time: Optional[float] = None,
     ) -> EmulatorMetrics:
         if avg_handle_time is None:
             avg_handle_time = self.config.avg_handle_time
@@ -357,7 +360,7 @@ class CallCenterEmulator:
         self,
         num_experts_per_interval: list,
         calls_per_interval: list,
-        avg_handle_time: float = None,
+        avg_handle_time: Optional[float] = None,
     ) -> dict:
         if len(num_experts_per_interval) != len(calls_per_interval):
             raise ValueError(
@@ -435,29 +438,28 @@ def main():
     print("\n" + "-" * 70)
     print("ERLANG-C (assumes infinite patience - no abandonment modeling)")
     print("-" * 70)
-    print(
-        f"{'Experts':<10} {'Avg Wait':<12} {'SLA%':<10} {'Util%':<10} {'Abandon%':<10}"
-    )
+    header = f"{'Exp':<6} {'Wait':<8} {'SLA%':<7} {'Util%':<7} {'Aband%':<7}"
+    print(header)
 
     for num_experts in [3, 4, 5, 6, 7, 8]:
         metrics = emulator_c.simulate_interval(num_experts, incoming_calls)
         print(
-            f"{num_experts:<10} {metrics.avg_wait_time:<12.1f} {metrics.sla_compliance:<10.1f} "
-            f"{metrics.utilization_rate:<10.1f} {metrics.abandonment_rate:<10.1f}"
+            f"{num_experts:<6} {metrics.avg_wait_time:<8.1f} "
+            f"{metrics.sla_compliance:<7.1f} {metrics.utilization_rate:<7.1f} "
+            f"{metrics.abandonment_rate:<7.1f}"
         )
 
     print("\n" + "-" * 70)
     print("ERLANG-A (models customer abandonment realistically)")
     print("-" * 70)
-    print(
-        f"{'Experts':<10} {'Avg Wait':<12} {'SLA%':<10} {'Util%':<10} {'Abandon%':<10}"
-    )
+    print(header)
 
     for num_experts in [3, 4, 5, 6, 7, 8]:
         metrics = emulator_a.simulate_interval(num_experts, incoming_calls)
         print(
-            f"{num_experts:<10} {metrics.avg_wait_time:<12.1f} {metrics.sla_compliance:<10.1f} "
-            f"{metrics.utilization_rate:<10.1f} {metrics.abandonment_rate:<10.1f}"
+            f"{num_experts:<6} {metrics.avg_wait_time:<8.1f} "
+            f"{metrics.sla_compliance:<7.1f} {metrics.utilization_rate:<7.1f} "
+            f"{metrics.abandonment_rate:<7.1f}"
         )
 
     print("\n" + "=" * 70)
@@ -536,18 +538,15 @@ Erlang-A:
     results = emulator_a.simulate_day(experts_per_interval, calls_per_interval)
 
     print("\nDay Summary:")
-    print(f"  Total calls: {results['summary']['total_calls']}")
-    print(f"  Calls handled: {results['summary']['total_handled']}")
-    print(f"  Calls abandoned: {results['summary']['total_abandoned']}")
-    print(f"  Avg wait time: {results['summary']['avg_wait_time']:.1f}s")
-    print(
-        f"  Avg SLA compliance: {results['summary']['avg_sla_compliance']:.1f}%"
-    )
-    print(f"  Avg utilization: {results['summary']['avg_utilization']:.1f}%")
-    print(f"  Abandonment rate: {results['summary']['abandonment_rate']:.1f}%")
-    print(
-        f"  Total expert-intervals: {results['summary']['total_experts_scheduled']}"
-    )
+    s = results["summary"]
+    print(f"  Total calls: {s['total_calls']}")
+    print(f"  Calls handled: {s['total_handled']}")
+    print(f"  Calls abandoned: {s['total_abandoned']}")
+    print(f"  Avg wait time: {s['avg_wait_time']:.1f}s")
+    print(f"  Avg SLA compliance: {s['avg_sla_compliance']:.1f}%")
+    print(f"  Avg utilization: {s['avg_utilization']:.1f}%")
+    print(f"  Abandonment rate: {s['abandonment_rate']:.1f}%")
+    print(f"  Total expert-intervals: {s['total_experts_scheduled']}")
 
 
 if __name__ == "__main__":
