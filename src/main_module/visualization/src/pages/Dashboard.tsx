@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { MetricCard } from '../components/MetricCard';
 import { WorkforceManagementPanel } from '../components/WorkforceManagementPanel';
 import { DemandForecastChart } from '../components/DemandChart';
-import { Clock, Target, TrendingUp, Trophy, ArrowRight, Phone, Calendar } from 'lucide-react';
+import { Clock, Target, TrendingUp, Trophy, ArrowRight, Phone, Calendar, CalendarClock } from 'lucide-react';
 import { Link } from 'react-router';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { fetchMetrics, DayMetrics } from '../lib/api';
@@ -514,7 +514,15 @@ export default function Dashboard() {
               <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Intuit Call Center Dashboard</h1>
               <p className="text-slate-500 dark:text-slate-400 mt-1">Real-time insights and workforce performance metrics.</p>
             </div>
-            <div className="flex items-center -mt-1">
+
+            <div className="flex items-center space-x-3 -mt-1">
+                <Link
+                  to="/shift-scheduler"
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm"
+                >
+                  <CalendarClock className="w-4 h-4" />
+                  <span className="text-sm font-medium">Shift Scheduler</span>
+                </Link>
                 <ThemeToggle />
             </div>
           </div>
@@ -649,6 +657,10 @@ export default function Dashboard() {
                   </div>
                   <h2 className="text-lg font-bold text-slate-900 dark:text-white">Top Performing Agents</h2>
                 </div>
+                <Link to="/all-agents" className="text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 flex items-center space-x-1 whitespace-nowrap">
+                  <span>View All</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
              </div>
              <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
@@ -669,8 +681,15 @@ export default function Dashboard() {
                       { name: 'Hao Zhang', status: 'Break', calls: 41, aht: '3m 05s', utilization: '86%', sla: '94%' },
                       { name: 'Sophia Fang', status: 'Online', calls: 32, aht: '3m 40s', utilization: '82%', sla: '97%' },
                     ].map((agent, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30 transition-colors">
-                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">{agent.name}</td>
+                      <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer">
+                        <td className="px-6 py-4">
+                          <Link
+                            to={`/agent/${encodeURIComponent(agent.name)}`}
+                            className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
+                          >
+                            {agent.name}
+                          </Link>
+                        </td>
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                             agent.status === 'Online' ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400' :
