@@ -18,9 +18,6 @@ interface TopAgent {
   composite_score: number;
 }
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
-
-// Helper function to replicate the volume logic from DemandChart
 function seededRandom(seed: number) {
     const x = Math.sin(seed) * 10000;
     return x - Math.floor(x);

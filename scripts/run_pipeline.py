@@ -11,7 +11,6 @@ Usage:
 """
 
 import sys
-import pandas as pd
 from pathlib import Path
 
 # Add src to the Python path so main_module is importable
@@ -19,11 +18,11 @@ _SRC = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(_SRC))
 
 from main_module.workforce import (
-    HybridForecaster,
     CallCenterEmulator,
     EmulatorConfig,
-    SupplyOptimizer,
+    HybridForecaster,
     OptimizationConstraints,
+    SupplyOptimizer,
 )
 
 DATA_PATH = str(
@@ -103,7 +102,7 @@ def main():
         max_occupancy=0.85,  # agents no more than 85% utilized
     )
 
-    print(f"\n  Constraints:")
+    print("\n  Constraints:")
     print(f"    Min SLA:       {constraints.min_sla:.0%}")
     print(f"    Max wait time: {constraints.max_wait_time}s")
     print(f"    Max occupancy: {constraints.max_occupancy:.0%}")
@@ -141,7 +140,7 @@ def main():
     feasible_count = sum(1 for _, _, r in results if r.is_feasible)
 
     print(f"\n{'='*80}")
-    print(f"  SUMMARY")
+    print("  SUMMARY")
     print(f"{'='*80}")
     print(f"  Total predicted calls : {sum(calls_per_interval)}")
     print(f"  Peak demand           : {peak_demand} calls")
