@@ -5,7 +5,6 @@ import pandas as pd
 
 
 class AgentAnalytics:
-
     _PERFORMANCE_WEIGHTS = {
         "resolution_rate": 0.30,
         "fcr_rate": 0.20,
@@ -28,12 +27,16 @@ class AgentAnalytics:
         return self
 
     def _load_metadata(self, tax_year):
-        d2 = pd.read_parquet(self.data_dir / "dataset_2_expert_metadata.parquet")
+        d2 = pd.read_parquet(
+            self.data_dir / "dataset_2_expert_metadata.parquet"
+        )
         if tax_year is not None:
             d2 = d2[d2["tax_year"] == tax_year]
         d2 = d2[d2["active_flg"] == "Y"].copy()
         d2 = d2[d2["contacts"] >= 50]
-        d2["answer_rate"] = d2["answered_contacts"] / d2["contacts"].clip(lower=1) * 100
+        d2["answer_rate"] = (
+            d2["answered_contacts"] / d2["contacts"].clip(lower=1) * 100
+        )
         self._agents = d2
 
     def _load_session_outcomes(self, tax_year):
@@ -42,8 +45,14 @@ class AgentAnalytics:
             self._session_stats = pd.DataFrame()
             return
 
-        cols = ["tax_year", "expert_assigned_id", "first_call_resolution",
-                "transfer_count", "hold_time_seconds", "duration_of_call_minutes"]
+        cols = [
+            "tax_year",
+            "expert_assigned_id",
+            "first_call_resolution",
+            "transfer_count",
+            "hold_time_seconds",
+            "duration_of_call_minutes",
+        ]
         d3 = pd.read_parquet(d3_path, columns=cols)
         if tax_year is not None:
             d3 = d3[d3["tax_year"] == tax_year]
@@ -51,7 +60,9 @@ class AgentAnalytics:
         d3["_fcr"] = (d3["first_call_resolution"] == "Y").astype(np.int8)
         d3["_transferred"] = (d3["transfer_count"] > 0).astype(np.int8)
         d3["hold_time_seconds"] = d3["hold_time_seconds"].fillna(0)
-        d3["duration_of_call_minutes"] = d3["duration_of_call_minutes"].fillna(0)
+        d3["duration_of_call_minutes"] = d3["duration_of_call_minutes"].fillna(
+            0
+        )
 
         self._session_stats = (
             d3.groupby("expert_assigned_id")
@@ -76,9 +87,14 @@ class AgentAnalytics:
             self._interval_stats = pd.DataFrame()
             return
 
-        cols = ["tax_year", "expert_id", "total_handle_time_seconds",
-                "total_available_time_seconds", "occupancy_pct",
-                "activity_break_meal_seconds"]
+        cols = [
+            "tax_year",
+            "expert_id",
+            "total_handle_time_seconds",
+            "total_available_time_seconds",
+            "occupancy_pct",
+            "activity_break_meal_seconds",
+        ]
         d4 = pd.read_parquet(d4_path, columns=cols)
         if tax_year is not None:
             d4 = d4[d4["tax_year"] == tax_year]
@@ -96,7 +112,10 @@ class AgentAnalytics:
         )
         self._interval_stats["utilization"] = (
             self._interval_stats["total_handle_time"]
-            / (self._interval_stats["total_handle_time"] + self._interval_stats["total_available_time"]).clip(lower=1)
+            / (
+                self._interval_stats["total_handle_time"]
+                + self._interval_stats["total_available_time"]
+            ).clip(lower=1)
             * 100
         )
 
@@ -117,9 +136,16 @@ class AgentAnalytics:
 
         df["fcr_rate"] = df["fcr_rate"].fillna(df["resolution_rate"])
         df["mean_occupancy"] = df["mean_occupancy"].fillna(50)
+        df["resolution_rate"] = df["fcr_rate"].fillna(df["resolution_rate"])
 
         handle_median = df["average_handle_time_seconds"].median()
-        df["efficiency_score"] = np.clip(handle_median / df["average_handle_time_seconds"].clip(lower=1) * 100, 0, 150)
+        df["efficiency_score"] = np.clip(
+            handle_median
+            / df["average_handle_time_seconds"].clip(lower=1)
+            * 100,
+            0,
+            100,
+        )
 
         df["occupancy_score"] = df["mean_occupancy"].clip(upper=100)
 
@@ -134,24 +160,40 @@ class AgentAnalytics:
 
         self._agents = df
 
-    def top_performers(self, n=20, segment=None, sort_by="composite_score"):
+    def top_performers(
+        self, n=20, segment=None, sort_by="composite_score", ascending=False
+    ):
         df = self._agents.copy()
         if segment is not None:
             df = df[df["expert_segment"] == segment]
 
         display_cols = [
-            "expert_id", "expert_segment", "business_segment",
-            "contacts", "answered_contacts",
-            "resolution_rate", "transfer_rate",
-            "average_handle_time_seconds", "average_hold_time_seconds",
+            "expert_id",
+            "expert_segment",
+            "business_segment",
+            "contacts",
+            "answered_contacts",
+            "resolution_rate",
+            "transfer_rate",
+            "average_handle_time_seconds",
+            "average_hold_time_seconds",
             "composite_score",
         ]
         extra = ["fcr_rate", "median_hold", "mean_occupancy", "utilization"]
         display_cols += [c for c in extra if c in df.columns]
 
+        col_map = {
+            "name": "expert_id",
+            "aht": "average_handle_time_seconds",
+            "segment": "expert_segment",
+        }
+        sort_col = col_map.get(sort_by, sort_by)
+        if sort_col not in df.columns:
+            sort_col = "expert_id"
+
         return (
             df[display_cols]
-            .sort_values(sort_by, ascending=False)
+            .sort_values(sort_col, ascending=ascending)
             .head(n)
             .reset_index(drop=True)
         )

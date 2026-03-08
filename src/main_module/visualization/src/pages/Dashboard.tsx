@@ -18,7 +18,7 @@ interface TopAgent {
   composite_score: number;
 }
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 // Helper function to replicate the volume logic from DemandChart
 function seededRandom(seed: number) {
@@ -106,7 +106,7 @@ export default function Dashboard() {
     const fetchTopAgents = async () => {
       try {
         setAgentsLoading(true);
-        const response = await fetch(`${API_BASE}/api/agents?n=4&sort_by=composite_score`);
+        const response = await fetch(`${API_BASE}/api/agents?n=4&sort_by=resolution_rate`);
         if (response.ok) {
           const data = await response.json();
           setTopAgents(data);
@@ -705,7 +705,7 @@ export default function Dashboard() {
                       <th className="px-6 py-4">Contacts</th>
                       <th className="px-6 py-4">Average Handle Time</th>
                       <th className="px-6 py-4">Utilization Rate</th>
-                      <th className="px-6 py-4">Score</th>
+                      <th className="px-6 py-4">Resolution Rate</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100/50 dark:divide-slate-700/50">
@@ -745,11 +745,11 @@ export default function Dashboard() {
                           <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.utilization.toFixed(1)}%</td>
                           <td className="px-6 py-4">
                             <span className={`font-bold ${
-                              agent.composite_score >= 100 ? 'text-green-600 dark:text-green-400' :
-                              agent.composite_score >= 80 ? 'text-blue-600 dark:text-blue-400' :
+                              agent.resolution_rate >= 90 ? 'text-green-600 dark:text-green-400' :
+                              agent.resolution_rate >= 80 ? 'text-blue-600 dark:text-blue-400' :
                               'text-slate-900 dark:text-white'
                             }`}>
-                              {agent.composite_score.toFixed(1)}
+                              {agent.resolution_rate.toFixed(1)}%
                             </span>
                           </td>
                         </tr>

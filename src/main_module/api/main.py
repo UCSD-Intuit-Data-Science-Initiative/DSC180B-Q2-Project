@@ -393,11 +393,14 @@ def get_agents(
     segment: Optional[str] = Query(
         None, description="Filter by expert segment"
     ),
-    sort_by: str = Query("composite_score", description="Sort by field"),
+    sort_by: str = Query("resolution_rate", description="Sort by field"),
+    ascending: bool = Query(False, description="Sort ascending"),
 ):
     try:
         aa = load_agent_analytics()
-        df = aa.top_performers(n=n, segment=segment, sort_by=sort_by)
+        df = aa.top_performers(
+            n=n, segment=segment, sort_by=sort_by, ascending=ascending
+        )
 
         def format_aht(seconds):
             if pd.isna(seconds) or seconds is None:
@@ -600,7 +603,9 @@ def get_schedule(
         demand_by_slot = {}
         for slot in slots:
             h, m = slot["time"].split(":")
-            demand_by_slot[(int(h), int(m))] = slot["predicted_calls"]
+            h_local, m = int(h), int(m)
+            h_utc = (h_local + 8) % 24
+            demand_by_slot[(h_utc, m)] = slot["predicted_calls"]
 
         schedule_df = ss.schedule_day(
             target_date=date,
