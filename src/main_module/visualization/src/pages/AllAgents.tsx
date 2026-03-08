@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from 'react';
-import { ArrowLeft, User, Phone, Clock, TrendingUp, ArrowUp, ArrowDown } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { ArrowLeft, User, Phone, Clock, TrendingUp, ArrowUp, ArrowDown, Loader2 } from 'lucide-react';
 import { Link } from 'react-router';
 import { ThemeToggle } from '../components/ThemeToggle';
 
-type SortKey = 'name' | 'status' | 'calls' | 'aht' | 'utilization';
+type SortKey = 'name' | 'segment' | 'contacts' | 'aht' | 'utilization' | 'composite_score';
 type SortDirection = 'asc' | 'desc';
 
 interface SortConfig {
@@ -12,59 +12,62 @@ interface SortConfig {
 }
 
 interface Agent {
+  expert_id: string;
   name: string;
-  status: 'Online' | 'In Call' | 'Break' | 'Offline';
-  calls: number;
+  segment: string;
+  business_segment: string;
+  status: string;
+  contacts: number;
+  answered_contacts: number;
+  resolution_rate: number;
+  transfer_rate: number;
   aht: string;
-  ahtSeconds: number;
-  utilization: string;
-  utilizationPercent: number;
+  aht_seconds: number;
+  hold_time_seconds: number;
+  composite_score: number;
+  fcr_rate: number;
+  utilization: number;
+  mean_occupancy: number;
 }
 
+const API_BASE = 'http://localhost:8000';
+
 export default function AllAgents() {
-  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'calls', direction: 'desc' });
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'composite_score', direction: 'desc' });
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Generate full agent list
-  const agentsData = useMemo((): Agent[] => {
-    const agents: Agent[] = [
-      { name: 'Jackie Wang', status: 'Online', calls: 45, aht: '3m 12s', ahtSeconds: 192, utilization: '87%', utilizationPercent: 87 },
-      { name: 'Sarah He', status: 'In Call', calls: 38, aht: '2m 55s', ahtSeconds: 175, utilization: '84%', utilizationPercent: 84 },
-      { name: 'Hao Zhang', status: 'Break', calls: 41, aht: '3m 05s', ahtSeconds: 185, utilization: '86%', utilizationPercent: 86 },
-      { name: 'Sophia Fang', status: 'Online', calls: 32, aht: '3m 40s', ahtSeconds: 220, utilization: '82%', utilizationPercent: 82 },
-      { name: 'Michael Chen', status: 'In Call', calls: 43, aht: '2m 48s', ahtSeconds: 168, utilization: '89%', utilizationPercent: 89 },
-      { name: 'Lisa Park', status: 'Online', calls: 39, aht: '3m 20s', ahtSeconds: 200, utilization: '85%', utilizationPercent: 85 },
-      { name: 'David Liu', status: 'Break', calls: 36, aht: '3m 15s', ahtSeconds: 195, utilization: '83%', utilizationPercent: 83 },
-      { name: 'Emily Zhang', status: 'Online', calls: 44, aht: '2m 52s', ahtSeconds: 172, utilization: '88%', utilizationPercent: 88 },
-      { name: 'Ryan Kim', status: 'In Call', calls: 40, aht: '3m 08s', ahtSeconds: 188, utilization: '86%', utilizationPercent: 86 },
-      { name: 'Jessica Wu', status: 'Online', calls: 37, aht: '3m 25s', ahtSeconds: 205, utilization: '84%', utilizationPercent: 84 },
-      { name: 'Kevin Zhao', status: 'Break', calls: 35, aht: '3m 18s', ahtSeconds: 198, utilization: '81%', utilizationPercent: 81 },
-      { name: 'Amy Lin', status: 'Online', calls: 42, aht: '2m 58s', ahtSeconds: 178, utilization: '87%', utilizationPercent: 87 },
-      { name: 'Tom Martinez', status: 'In Call', calls: 38, aht: '3m 10s', ahtSeconds: 190, utilization: '85%', utilizationPercent: 85 },
-      { name: 'Rachel Chang', status: 'Online', calls: 41, aht: '3m 02s', ahtSeconds: 182, utilization: '86%', utilizationPercent: 86 },
-      { name: 'James Lee', status: 'Break', calls: 34, aht: '3m 28s', ahtSeconds: 208, utilization: '80%', utilizationPercent: 80 },
-      { name: 'Anna Chen', status: 'Offline', calls: 30, aht: '3m 35s', ahtSeconds: 215, utilization: '78%', utilizationPercent: 78 },
-      { name: 'Mark Johnson', status: 'Online', calls: 46, aht: '2m 45s', ahtSeconds: 165, utilization: '90%', utilizationPercent: 90 },
-      { name: 'Lily Wang', status: 'In Call', calls: 39, aht: '3m 05s', ahtSeconds: 185, utilization: '85%', utilizationPercent: 85 },
-      { name: 'Chris Lee', status: 'Break', calls: 33, aht: '3m 22s', ahtSeconds: 202, utilization: '79%', utilizationPercent: 79 },
-      { name: 'Michelle Kim', status: 'Online', calls: 40, aht: '3m 12s', ahtSeconds: 192, utilization: '86%', utilizationPercent: 86 },
-      { name: 'Daniel Park', status: 'Offline', calls: 28, aht: '3m 40s', ahtSeconds: 220, utilization: '75%', utilizationPercent: 75 },
-      { name: 'Sophie Zhang', status: 'In Call', calls: 41, aht: '2m 58s', ahtSeconds: 178, utilization: '87%', utilizationPercent: 87 },
-      { name: 'Alex Wu', status: 'Online', calls: 44, aht: '3m 00s', ahtSeconds: 180, utilization: '88%', utilizationPercent: 88 },
-      { name: 'Grace Liu', status: 'Break', calls: 36, aht: '3m 18s', ahtSeconds: 198, utilization: '83%', utilizationPercent: 83 },
-      { name: 'Eric Chen', status: 'Online', calls: 42, aht: '2m 52s', ahtSeconds: 172, utilization: '87%', utilizationPercent: 87 },
-    ];
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`${API_BASE}/api/agents?n=100&sort_by=composite_score`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        setAgents(data);
+        setError(null);
+      } catch (err) {
+        console.error('Failed to fetch agents:', err);
+        setError('Failed to load agent data');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    // Sort based on current config
+    fetchAgents();
+  }, []);
+
+  const sortedAgents = useMemo(() => {
     return [...agents].sort((a, b) => {
-      let aValue: any = a[sortConfig.key];
-      let bValue: any = b[sortConfig.key];
+      let aValue: any = a[sortConfig.key as keyof Agent];
+      let bValue: any = b[sortConfig.key as keyof Agent];
 
       if (sortConfig.key === 'aht') {
-        aValue = a.ahtSeconds;
-        bValue = b.ahtSeconds;
-      } else if (sortConfig.key === 'utilization') {
-        aValue = a.utilizationPercent;
-        bValue = b.utilizationPercent;
+        aValue = a.aht_seconds;
+        bValue = b.aht_seconds;
       }
 
       if (aValue < bValue) {
@@ -75,7 +78,7 @@ export default function AllAgents() {
       }
       return 0;
     });
-  }, [sortConfig]);
+  }, [agents, sortConfig]);
 
   const handleSort = (key: SortKey) => {
     setSortConfig(current => ({
@@ -89,24 +92,30 @@ export default function AllAgents() {
     return sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />;
   };
 
-  const getStatusColor = (status: Agent['status']) => {
-    switch (status) {
-      case 'Online':
-        return 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400';
-      case 'In Call':
-        return 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400';
-      case 'Break':
-        return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400';
-      case 'Offline':
-        return 'bg-slate-100 dark:bg-slate-700/30 text-slate-800 dark:text-slate-400';
-    }
+  const getSegmentColor = (segment: string) => {
+    const colors: Record<string, string> = {
+      'Premium': 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-400',
+      'Standard': 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400',
+      'Basic': 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400',
+    };
+    return colors[segment] || 'bg-slate-100 dark:bg-slate-700/30 text-slate-800 dark:text-slate-400';
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
+        <div className="flex items-center space-x-3 text-slate-600 dark:text-slate-400">
+          <Loader2 className="w-6 h-6 animate-spin" />
+          <span>Loading agents...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-900 dark:text-slate-100 p-6 md:p-8 transition-colors duration-300">
       <style>
         {`
-          /* Custom Scrollbar Styling */
           ::-webkit-scrollbar {
             width: 8px;
             height: 8px;
@@ -122,7 +131,6 @@ export default function AllAgents() {
           ::-webkit-scrollbar-thumb:hover {
             background: rgba(156, 163, 175, 0.8);
           }
-          /* For Firefox */
           * {
             scrollbar-width: thin;
             scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
@@ -137,11 +145,19 @@ export default function AllAgents() {
             </Link>
             <div>
               <h1 className="text-2xl font-bold text-slate-900 dark:text-white">All Agents</h1>
-              <p className="text-slate-500 dark:text-slate-400 text-sm">Complete agent roster with performance metrics. Click column headers to sort.</p>
+              <p className="text-slate-500 dark:text-slate-400 text-sm">
+                {agents.length} agents with real performance metrics. Click column headers to sort.
+              </p>
             </div>
           </div>
           <ThemeToggle />
         </div>
+
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+            <p className="text-red-700 dark:text-red-300">{error}</p>
+          </div>
+        )}
 
         <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col h-[80vh]">
             <div className="overflow-auto flex-1 rounded-xl custom-scrollbar">
@@ -154,28 +170,28 @@ export default function AllAgents() {
                             >
                                 <div className="flex items-center space-x-2">
                                     <User className="w-4 h-4" />
-                                    <span>Agent Name</span>
+                                    <span>Agent ID</span>
                                     <SortIcon columnKey="name" />
                                 </div>
                             </th>
                             <th
                               className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
-                              onClick={() => handleSort('status')}
+                              onClick={() => handleSort('segment')}
                             >
                                 <div className="flex items-center space-x-2">
                                     <TrendingUp className="w-4 h-4" />
-                                    <span>Status</span>
-                                    <SortIcon columnKey="status" />
+                                    <span>Segment</span>
+                                    <SortIcon columnKey="segment" />
                                 </div>
                             </th>
                             <th
                               className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
-                              onClick={() => handleSort('calls')}
+                              onClick={() => handleSort('contacts')}
                             >
                                 <div className="flex items-center space-x-2">
                                     <Phone className="w-4 h-4" />
-                                    <span>Calls Taken</span>
-                                    <SortIcon columnKey="calls" />
+                                    <span>Contacts</span>
+                                    <SortIcon columnKey="contacts" />
                                 </div>
                             </th>
                             <th
@@ -184,7 +200,7 @@ export default function AllAgents() {
                             >
                                 <div className="flex items-center space-x-2">
                                     <Clock className="w-4 h-4" />
-                                    <span>Average Handle Time</span>
+                                    <span>Avg Handle Time</span>
                                     <SortIcon columnKey="aht" />
                                 </div>
                             </th>
@@ -194,31 +210,50 @@ export default function AllAgents() {
                             >
                                 <div className="flex items-center space-x-2">
                                     <TrendingUp className="w-4 h-4" />
-                                    <span>Utilization Rate</span>
+                                    <span>Utilization</span>
                                     <SortIcon columnKey="utilization" />
+                                </div>
+                            </th>
+                            <th
+                              className="px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
+                              onClick={() => handleSort('composite_score')}
+                            >
+                                <div className="flex items-center space-x-2">
+                                    <TrendingUp className="w-4 h-4" />
+                                    <span>Score</span>
+                                    <SortIcon columnKey="composite_score" />
                                 </div>
                             </th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {agentsData.map((agent, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer">
+                        {sortedAgents.map((agent) => (
+                            <tr key={agent.expert_id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer">
                                 <td className="px-6 py-4">
                                     <Link
-                                        to={`/agent/${encodeURIComponent(agent.name)}`}
+                                        to={`/agent/${encodeURIComponent(agent.expert_id)}`}
                                         className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline"
                                     >
-                                        {agent.name}
+                                        {agent.expert_id}
                                     </Link>
                                 </td>
                                 <td className="px-6 py-4">
-                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(agent.status)}`}>
-                                        {agent.status}
+                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getSegmentColor(agent.segment)}`}>
+                                        {agent.segment}
                                     </span>
                                 </td>
-                                <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.calls}</td>
+                                <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.contacts.toLocaleString()}</td>
                                 <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.aht}</td>
-                                <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.utilization}</td>
+                                <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{agent.utilization.toFixed(1)}%</td>
+                                <td className="px-6 py-4">
+                                    <span className={`font-medium ${
+                                        agent.composite_score >= 80 ? 'text-green-600 dark:text-green-400' :
+                                        agent.composite_score >= 60 ? 'text-yellow-600 dark:text-yellow-400' :
+                                        'text-red-600 dark:text-red-400'
+                                    }`}>
+                                        {agent.composite_score.toFixed(1)}
+                                    </span>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
