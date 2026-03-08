@@ -92,7 +92,7 @@ The Hybrid Demand Forecaster is an advanced machine learning system designed to 
 ### Intended Usage
 - **Primary Use:** Multi-horizon call volume forecasting
 - **Users:** Call center managers, workforce planners, capacity analysts
-- **Applications:** 
+- **Applications:**
   - Short-term scheduling (1-7 days ahead)
   - Long-term capacity planning (1-4 weeks ahead)
   - Seasonal workforce budgeting
