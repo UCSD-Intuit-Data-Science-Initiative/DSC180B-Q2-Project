@@ -18,18 +18,20 @@ class ShiftScheduler:
         self._agent_meta = None
 
     def load_agent_patterns(self, tax_year=None, recent_days=90):
+        # Only read the columns we actually use (skip handle_time and available_time)
+        needed_cols = [
+            "expert_id",
+            "date",
+            "interval_start_utc",
+            "occupancy_pct",
+            "primary_activity_category_30m",
+        ]
+        if tax_year is not None:
+            needed_cols.append("tax_year")
+
         d4 = pd.read_parquet(
             self.data_dir / "dataset_4_expert_state_interval.parquet",
-            columns=[
-                "tax_year",
-                "expert_id",
-                "date",
-                "interval_start_utc",
-                "total_handle_time_seconds",
-                "total_available_time_seconds",
-                "occupancy_pct",
-                "primary_activity_category_30m",
-            ],
+            columns=needed_cols,
         )
         if tax_year is not None:
             d4 = d4[d4["tax_year"] == tax_year]

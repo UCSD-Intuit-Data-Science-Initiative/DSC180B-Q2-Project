@@ -66,6 +66,10 @@ node_modules/
 .vite/
 *.tsbuildinfo
 
+# Root-level npm artifacts (frontend lives in src/main_module/visualization/)
+/package.json
+/package-lock.json
+
 # Saved model artifacts
 *.pkl
 
