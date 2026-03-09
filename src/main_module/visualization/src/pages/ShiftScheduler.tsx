@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
-import { fetchScheduleApi, fetchStaffing, formatDate } from '../lib/api';
+import { fetchScheduleWithStaffing, formatDate } from '../lib/api';
 
 interface ScheduleAssignment {
   expert_id: string;
@@ -130,28 +130,20 @@ export default function ShiftScheduler() {
     setLoading(true);
     setError(null);
     setLoadingStale(false);
-    let scheduleError: string | null = null;
-    let staffingSlots: Array<{ time: string; predicted_calls: number; agents: number }> = [];
     try {
-      staffingSlots = await fetchStaffing(selectedDate, 80, 60, 85);
-      setStaffingData(staffingSlots.map(s => ({ time: s.time, calls: s.predicted_calls, agents: s.agents })));
-    } catch (err) {
-      setStaffingData([]);
-      setError(err instanceof Error ? err.message : 'Failed to load staffing');
-    }
-    try {
-      const scheduleRes = await fetchScheduleApi(`/api/schedule?date=${selectedDateStr}`);
-      if (!scheduleRes.ok) {
-        const errBody = await scheduleRes.json().catch(() => ({}));
-        scheduleError = errBody.detail || `Schedule API error: ${scheduleRes.status}`;
-        if (!staffingSlots.length) setError(scheduleError);
-      } else {
-        const sched = await scheduleRes.json();
-        setScheduleData(sched);
-      }
+      const { staffing, schedule } = await fetchScheduleWithStaffing(
+        selectedDate, 80, 60, 85
+      );
+      setStaffingData(staffing.map(s => ({
+        time: s.time,
+        calls: s.predicted_calls,
+        agents: s.agents,
+      })));
+      setScheduleData(schedule);
     } catch (err) {
       setScheduleData(null);
-      if (!staffingSlots.length) setError(err instanceof Error ? err.message : 'Failed to load schedule');
+      setStaffingData([]);
+      setError(err instanceof Error ? err.message : 'Failed to load schedule');
     } finally {
       setLoading(false);
     }

@@ -25,21 +25,15 @@ cd DSC180B-Q2-Project
 
 ### Option A: Docker (Recommended)
 
-**2a. Start the backend**
+Start both services (the frontend waits for the backend to be ready):
 
 ```bash
-make backend-up
+docker compose up -d --build
 ```
 
-Wait for the backend to finish starting (about 10–30 seconds). You should see logs indicating the API is ready.
+Or use Make: `make backend-up` then `make frontend-up`. The frontend connects directly to the backend at localhost:8000, so data loads reliably.
 
-**2b. Start the frontend**
-
-```bash
-make frontend-up
-```
-
-**2c. Open the dashboard**
+**Open the dashboard**
 
 - **Dashboard:** http://localhost:3000
 - **API docs:** http://localhost:8000/docs

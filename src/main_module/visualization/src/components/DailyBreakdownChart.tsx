@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend } from 'recharts';
+import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Activity, ChevronLeft, ChevronRight, Phone, Users } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 // import { fetchForecast } from '../lib/api'; // Unused — chart uses staffingData prop instead
@@ -29,9 +29,6 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
            selectedDate.getFullYear() === today.getFullYear();
   }, [selectedDate]);
 
-  // Current time state for the reference line
-  const [currentTimeLabel, setCurrentTimeLabel] = useState<string | null>(null);
-
   // Clicked slot — overrides the stat cards when user clicks a point on the chart
   const [clickedSlot, setClickedSlot] = useState<{ time: string; calls: number; agents: number } | null>(null);
 
@@ -47,41 +44,6 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
 
   // Unused — chart renders from staffingData prop, not local fetch
   // const [data, setData] = useState<{ time: string; calls: number }[]>([]);
-
-  useEffect(() => {
-    if (isTodayMemo) {
-        const updateTime = () => {
-            const now = new Date();
-            // Use UTC hours so the reference line aligns with API slot labels (which are UTC)
-            const hour = now.getUTCHours();
-            const minute = now.getUTCMinutes();
-            // Round to nearest 30 min interval
-            const roundedMinute = minute < 15 ? 0 : minute < 45 ? 30 : 60;
-            let finalHour = hour;
-            let finalMinute = roundedMinute;
-
-            if (finalMinute === 60) {
-                finalHour += 1;
-                finalMinute = 0;
-            }
-            if (finalHour > 23) {
-                setCurrentTimeLabel(null);
-                return;
-            }
-
-            setCurrentTimeLabel(`${finalHour.toString().padStart(2, '0')}:${finalMinute.toString().padStart(2, '0')}`);
-        };
-
-        updateTime();
-        const interval = setInterval(updateTime, 60000);
-
-        return () => clearInterval(interval);
-    } else {
-        setCurrentTimeLabel(null);
-    }
-
-
-  }, [isTodayMemo]);
 
   // Unused — chart renders from staffingData prop, not local fetch
   // useEffect(() => {
@@ -299,24 +261,6 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
               wrapperStyle={{ paddingTop: '10px' }}
               iconType="line"
             />
-            {isToday && currentTimeLabel && (
-              <ReferenceLine
-                x={currentTimeLabel}
-                yAxisId="left"
-                stroke={isDark ? '#f59e0b' : '#f59e0b'}
-                strokeWidth={2}
-                strokeDasharray="3 3"
-                label={{
-                  value: 'Now',
-                  position: 'top',
-                  fill: isDark ? '#f59e0b' : '#f59e0b',
-                  fontSize: 11,
-                  fontWeight: 600,
-                  offset: 5
-                }}
-                ifOverflow="extendDomain"
-              />
-            )}
             <Area
               yAxisId="left"
               type="monotone"

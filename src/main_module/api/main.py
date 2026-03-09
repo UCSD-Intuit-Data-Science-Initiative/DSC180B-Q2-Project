@@ -17,6 +17,7 @@ Endpoints:
   GET /api/agents/{id}        detailed profile for a single agent
   GET /api/agents/segments    segment-level summary stats
   GET /api/schedule?date=     shift schedule for a date
+  GET /api/routing/recommend  agent routing recommendations
 
 How to run locally (no Docker):
   pip install fastapi uvicorn
@@ -37,6 +38,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from main_module.workforce.agent_analytics import AgentAnalytics
+from main_module.workforce.agent_routing import AgentRouter
 from main_module.workforce.combined_forecaster import CombinedForecaster
 from main_module.workforce.shift_scheduler import ShiftScheduler
 
@@ -54,6 +56,7 @@ optimizer = None
 model_ready = False
 forecaster: Optional[CombinedForecaster] = None
 agent_analytics: Optional[AgentAnalytics] = None
+agent_router: Optional[AgentRouter] = None
 shift_scheduler: Optional[ShiftScheduler] = None
 
 
@@ -101,7 +104,12 @@ app = FastAPI(title="Workforce Optimization API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ],
     allow_methods=["GET"],
     allow_headers=["*"],
 )
@@ -110,9 +118,10 @@ app.add_middleware(
 @lru_cache(maxsize=1)
 def load_agent_analytics():
     global agent_analytics
-    agent_analytics = AgentAnalytics(data_dir=str(PARQUET_DIR))
+    data_dir = _resolve_data_dir()
+    agent_analytics = AgentAnalytics(data_dir=data_dir)
     agent_analytics.load(tax_year=None)
-    print(f"AgentAnalytics loaded from {PARQUET_DIR}")
+    print(f"AgentAnalytics loaded from {data_dir}")
     return agent_analytics
 
 
@@ -122,6 +131,16 @@ def _resolve_data_dir():
         if (p / "dataset_4_expert_state_interval.parquet").exists():
             return str(p)
     return str(PARQUET_DIR)
+
+
+@lru_cache(maxsize=1)
+def load_agent_router():
+    global agent_router
+    data_dir = _resolve_data_dir()
+    agent_router = AgentRouter(data_dir=data_dir)
+    agent_router.load(tax_year=None)
+    print(f"AgentRouter loaded from {data_dir}")
+    return agent_router
 
 
 @lru_cache(maxsize=1)
@@ -186,7 +205,10 @@ def get_placeholder_slots():
     ]
 
 
-def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
+@lru_cache(maxsize=32)
+def _run_pipeline_for_date_cached(
+    date_str, min_sla, max_wait_time, max_occupancy
+):
     from main_module.workforce.supply_optimizer import OptimizationConstraints
 
     fc = load_model_bundle()
@@ -242,6 +264,17 @@ def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
             )
 
     return results
+
+
+def run_pipeline_for_date(date_str, min_sla, max_wait_time, max_occupancy):
+    return list(
+        _run_pipeline_for_date_cached(
+            str(date_str),
+            float(min_sla),
+            float(max_wait_time),
+            float(max_occupancy),
+        )
+    )
 
 
 @app.get("/")
@@ -607,6 +640,90 @@ def get_agent_profile(expert_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/schedule-with-staffing")
+def get_schedule_with_staffing(
+    date: str = Query(..., description="Target date (YYYY-MM-DD)"),
+    min_sla: float = 0.80,
+    max_wait: float = 60.0,
+    max_occupancy: float = 0.85,
+    max_agents: Optional[int] = Query(
+        None, description="Max agents to schedule"
+    ),
+):
+    if not model_ready:
+        raise HTTPException(status_code=503, detail="Model not ready")
+    try:
+        slots = run_pipeline_for_date(date, min_sla, max_wait, max_occupancy)
+        demand_by_slot = {}
+        for slot in slots:
+            h, m = slot["time"].split(":")
+            h_local, m = int(h), int(m)
+            h_utc = (h_local + 8) % 24
+            demand_by_slot[(h_utc, m)] = slot["predicted_calls"]
+
+        ss = load_shift_scheduler()
+        schedule_df = ss.schedule_day(
+            target_date=date,
+            demand_by_slot=demand_by_slot,
+            prefer_high_performers=True,
+            max_agents=max_agents,
+        )
+
+        assignments = []
+        coverage = []
+        summary = []
+        if len(schedule_df) > 0:
+            for _, row in schedule_df.iterrows():
+                assignments.append(
+                    {
+                        "expert_id": str(row["expert_id"]),
+                        "slot_start": row["slot_start_utc"].isoformat(),
+                        "slot_end": row["slot_end_utc"].isoformat(),
+                        "assignment": row["assignment"],
+                        "shift_block": row["shift_block"],
+                    }
+                )
+            coverage_df = ss.coverage_report(schedule_df, demand_by_slot)
+            for _, row in coverage_df.iterrows():
+                coverage.append(
+                    {
+                        "slot_start": row["slot_start_utc"].isoformat(),
+                        "agents_assigned": int(row["agents_assigned"]),
+                        "predicted_demand": int(row["predicted_demand"]),
+                        "coverage_ratio": round(
+                            float(row["coverage_ratio"]), 2
+                        ),
+                    }
+                )
+            summary_df = ss.agent_shift_summary(schedule_df)
+            for _, row in summary_df.iterrows():
+                summary.append(
+                    {
+                        "expert_id": str(row["expert_id"]),
+                        "shift_block": row["shift_block"],
+                        "shift_start": row["shift_start"].isoformat(),
+                        "shift_end": row["shift_end"].isoformat(),
+                        "total_slots": int(row["total_slots"]),
+                        "work_slots": int(row["work_slots"]),
+                        "break_slots": int(row["break_slots"]),
+                        "shift_hours": float(row["shift_hours"]),
+                        "work_hours": float(row["work_hours"]),
+                    }
+                )
+
+        return {
+            "staffing": slots,
+            "schedule": {
+                "date": date,
+                "assignments": assignments,
+                "coverage": coverage,
+                "summary": summary,
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/schedule")
 def get_schedule(
     date: str = Query(..., description="Target date (YYYY-MM-DD)"),
@@ -791,5 +908,38 @@ def get_agent_availability(
         }
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/routing/recommend")
+def get_routing_recommendations(
+    product_group_sku: Optional[str] = Query(
+        None,
+        description="Product/segment SKU (e.g. SBSEG_US_OL_PRPM_QBO_A_PHN)",
+    ),
+    channel: Optional[str] = Query(
+        None,
+        description="Channel: PHONE, CHAT, INBOUND, OUTBOUND",
+    ),
+    datetime_utc: Optional[str] = Query(
+        None,
+        description="Target datetime UTC (YYYY-MM-DDTHH:MM) for availability",
+    ),
+    top_n: int = Query(
+        5, ge=1, le=20, description="Number of agents to return"
+    ),
+):
+    try:
+        router = load_agent_router()
+        analytics = load_agent_analytics()
+        recommendations = router.recommend(
+            product_group_sku=product_group_sku,
+            channel=channel,
+            date_utc=datetime_utc,
+            top_n=top_n,
+            agent_analytics=analytics,
+        )
+        return {"recommendations": recommendations}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

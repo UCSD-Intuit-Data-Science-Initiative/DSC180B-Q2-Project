@@ -17,7 +17,7 @@ from pathlib import Path
 _SRC = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(_SRC))
 
-from main_module.workforce import (
+from main_module.workforce import (  # noqa: E402
     CallCenterEmulator,
     EmulatorConfig,
     HybridForecaster,
@@ -119,9 +119,11 @@ def main():
     print(f"\n{'='*80}")
     print(f"  STAFFING SCHEDULE FOR {target_date}")
     print(f"{'='*80}")
-    print(
-        f"\n{'Time':<8} {'Demand':<10} {'Agents':<10} {'Wait(s)':<10} {'SLA%':<10} {'Occupancy':<12} {'Feasible':<10}"
+    header = (
+        f"\n{'Time':<8} {'Demand':<10} {'Agents':<10} {'Wait(s)':<10} "
+        f"{'SLA%':<10} {'Occupancy':<12} {'Feasible':<10}"
     )
+    print(header)
     print("-" * 70)
 
     total_agents = 0
