@@ -36,6 +36,14 @@ exclude:
   - Gemfile.lock
   - node_modules
   - README.md
+  - LAUNCH_GUIDE.md
+  - MODEL_CARD_SingleModel.md
+  - MODEL_CARD_HybridModel.md
+  - MODEL_CARD_SingleModel.md
+  - MODEL_CARD_CombinedForecaster.md
+  - model_card_forecasting_4_weeks.md
+  - model_card_forecasting_dynamic_weeks.md
+  
 
 # Navigation order (Just the Docs auto-builds nav from front matter)
 # Individual pages declare nav_order in their front matter.
