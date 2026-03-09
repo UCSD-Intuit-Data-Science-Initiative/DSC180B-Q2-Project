@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, User, Phone, Clock, TrendingUp, ArrowUp, ArrowDown, Loader2, Info } from 'lucide-react';
 import { Link } from 'react-router';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { API_BASE } from '../lib/api';
 
 type SortKey = 'name' | 'segment' | 'contacts' | 'aht' | 'utilization' | 'resolution_rate' | 'composite_score';
 type SortDirection = 'asc' | 'desc';
@@ -29,8 +30,6 @@ interface Agent {
   utilization: number;
   mean_occupancy: number;
 }
-
-const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export default function AllAgents() {
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'resolution_rate', direction: 'desc' });
