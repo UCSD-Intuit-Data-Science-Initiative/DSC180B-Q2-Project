@@ -2,20 +2,27 @@ services:
   backend:
     container_name: workforce-backend
     build:
-      context: .                               # project root — Dockerfile can access all files
+      context: .
       dockerfile: src/main_module/api/Dockerfile
-      target: dev                              # use the dev stage (with --reload)
+      target: dev
     ports:
-      - "8000:8000"                            # your laptop:8000 → container:8000
+      - "8000:8000"
     volumes:
-      - .:/app                                 # link local project root into container for hot reload
+      - .:/app
     environment:
-      - PYTHONPATH=/app/src                    # lets `from main_module.workforce import ...` work
-      - PYTHONUNBUFFERED=1                     # flush print() immediately so logs appear in docker compose logs
+      - PYTHONPATH=/app/src
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
 
   frontend:
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     build:
       context: ./src/main_module/visualization
       dockerfile: DockerFile
@@ -27,6 +34,7 @@ services:
       - frontend_node_modules:/app/node_modules
     environment:
       - NODE_ENV=development
+      - VITE_API_URL=http://localhost:8000
 
 volumes:
   frontend_node_modules:

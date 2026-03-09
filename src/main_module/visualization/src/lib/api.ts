@@ -1,4 +1,15 @@
-const API_BASE = import.meta.env.VITE_API_URL || '';
+function getApiBase(): string {
+  const env = import.meta.env.VITE_API_URL;
+  if (env && typeof env === 'string') return env;
+  if (typeof window !== 'undefined') {
+    const h = window.location?.hostname;
+    if (h === 'localhost' || h === '127.0.0.1') {
+      return 'http://localhost:8000';
+    }
+  }
+  return '';
+}
+export const API_BASE = getApiBase();
 const FETCH_TIMEOUT_MS = 30000;
 const FETCH_RETRIES = 2;
 
@@ -131,5 +142,48 @@ export async function fetchStaffing(
   });
   const res = await fetchWithRetry(`${API_BASE}/api/staffing?${params}`);
   if (!res.ok) throw new Error(`staffing fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchScheduleWithStaffing(
+  date: Date,
+  minSla: number,
+  maxWait: number,
+  maxOccupancy: number
+): Promise<{ staffing: StaffingSlot[]; schedule: { date: string; assignments: unknown[]; coverage: unknown[]; summary: unknown[] } }> {
+  const params = new URLSearchParams({
+    date: formatDate(date),
+    min_sla: (minSla / 100).toString(),
+    max_wait: maxWait.toString(),
+    max_occupancy: (maxOccupancy / 100).toString(),
+  });
+  const res = await fetchScheduleApi(`/api/schedule-with-staffing?${params}`);
+  if (!res.ok) throw new Error(`schedule fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export interface RoutingRecommendation {
+  expert_id: string;
+  name: string;
+  segment: string;
+  resolution_rate: number;
+  transfer_rate: number;
+  affinity_volume: number;
+  score: number;
+}
+
+export async function fetchRoutingRecommendations(params: {
+  product_group_sku?: string;
+  channel?: string;
+  datetime_utc?: string;
+  top_n?: number;
+}): Promise<{ recommendations: RoutingRecommendation[] }> {
+  const search = new URLSearchParams();
+  if (params.product_group_sku) search.set('product_group_sku', params.product_group_sku);
+  if (params.channel) search.set('channel', params.channel);
+  if (params.datetime_utc) search.set('datetime_utc', params.datetime_utc);
+  if (params.top_n != null) search.set('top_n', String(params.top_n));
+  const res = await fetchApi(`/api/routing/recommend?${search}`, 30000);
+  if (!res.ok) throw new Error(`routing fetch failed: ${res.status}`);
   return res.json();
 }

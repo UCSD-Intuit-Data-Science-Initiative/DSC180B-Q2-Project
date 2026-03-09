@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useTheme } from '../context/ThemeContext';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { API_BASE } from '../lib/api';
 
 interface AgentProfile {
   expert_id: string;
@@ -26,8 +27,6 @@ interface AgentProfile {
   median_hold: number;
   mean_hold: number;
 }
-
-const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export default function AgentDetail() {
   const { agentName } = useParams<{ agentName: string }>();

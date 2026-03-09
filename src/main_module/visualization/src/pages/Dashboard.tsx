@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { MetricCard } from '../components/MetricCard';
 import { WorkforceManagementPanel } from '../components/WorkforceManagementPanel';
 import { DemandForecastChart } from '../components/DemandChart';
-import { Clock, Target, TrendingUp, Trophy, ArrowRight, Phone, Calendar, CalendarClock, Loader2 } from 'lucide-react';
+import { Clock, Target, TrendingUp, Trophy, ArrowRight, Phone, Calendar, CalendarClock, Loader2, Route, Search } from 'lucide-react';
 import { Link } from 'react-router';
 import { ThemeToggle } from '../components/ThemeToggle';
-import { fetchMetrics, fetchApi, DayMetrics } from '../lib/api';
+import { fetchMetrics, fetchApi, fetchRoutingRecommendations, DayMetrics, RoutingRecommendation } from '../lib/api';
 
 interface TopAgent {
   expert_id: string;
@@ -70,6 +70,32 @@ export default function Dashboard() {
   const [metricsError, setMetricsError] = useState<string | null>(null);
   const [topAgents, setTopAgents] = useState<TopAgent[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
+  const [routingProduct, setRoutingProduct] = useState('');
+  const [routingChannel, setRoutingChannel] = useState('');
+  const [routingLoading, setRoutingLoading] = useState(false);
+  const [routingRecommendations, setRoutingRecommendations] = useState<RoutingRecommendation[]>([]);
+  const [routingError, setRoutingError] = useState<string | null>(null);
+
+  const handleFetchRouting = async () => {
+    setRoutingLoading(true);
+    setRoutingError(null);
+    setRoutingRecommendations([]);
+    try {
+      const now = new Date();
+      const datetimeUtc = now.toISOString().slice(0, 16);
+      const { recommendations } = await fetchRoutingRecommendations({
+        product_group_sku: routingProduct || undefined,
+        channel: routingChannel || undefined,
+        datetime_utc: datetimeUtc,
+        top_n: 5,
+      });
+      setRoutingRecommendations(recommendations);
+    } catch (err) {
+      setRoutingError(err instanceof Error ? err.message : 'Failed to load recommendations');
+    } finally {
+      setRoutingLoading(false);
+    }
+  };
 
   // State for simulator targets
   const [simulatorTargets, setSimulatorTargets] = useState({
@@ -570,11 +596,7 @@ export default function Dashboard() {
           <div className="relative">
              {/* Weekly Overview Section */}
              <div
-               style={{
-                 background: 'rgba(255, 255, 255, 0.10)',
-                 boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.10), 0 1px 2px -1px rgba(0, 0, 0, 0.10)'
-               }}
-               className="backdrop-blur-xl rounded-xl border border-slate-100 dark:border-slate-700 dark:bg-slate-800/50 overflow-hidden"
+               className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm overflow-hidden"
              >
                {/* Header */}
                <div className="p-6 border-b border-slate-200/50 dark:border-slate-700/50">
@@ -628,7 +650,7 @@ export default function Dashboard() {
                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <MetricCard
                       title="Service Level (SLA)"
-                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? `${metrics.avg_sla_compliance.toFixed(1)}%` : weeklyMetrics.sla) : weeklyMetrics.sla}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? `${metrics.avg_sla_compliance.toFixed(1)}%` : metricsError ? '—' : weeklyMetrics.sla) : weeklyMetrics.sla}
                       change={weeklyMetrics.slaChange}
                       isPositive={weeklyMetrics.slaPositive}
                       icon={Target}
@@ -637,7 +659,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Avg. Waiting Time"
-                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? `${Math.round(metrics.avg_wait_time)}s` : weeklyMetrics.waitTime) : weeklyMetrics.waitTime}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? `${Math.round(metrics.avg_wait_time)}s` : metricsError ? '—' : weeklyMetrics.waitTime) : weeklyMetrics.waitTime}
                       change={weeklyMetrics.waitChange}
                       isPositive={weeklyMetrics.waitPositive}
                       icon={Clock}
@@ -646,7 +668,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Avg. Agent Occupancy"
-                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? `${metrics.avg_occupancy.toFixed(1)}%` : weeklyMetrics.occupancy) : weeklyMetrics.occupancy}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? `${metrics.avg_occupancy.toFixed(1)}%` : metricsError ? '—' : weeklyMetrics.occupancy) : weeklyMetrics.occupancy}
                       change={weeklyMetrics.occupancyChange}
                       isPositive={weeklyMetrics.occupancyPositive}
                       icon={TrendingUp}
@@ -655,7 +677,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Total Calls Processed"
-                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? metrics.total_calls.toLocaleString() : weeklyMetrics.totalCalls) : weeklyMetrics.totalCalls}
+                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? metrics.total_calls.toLocaleString() : metricsError ? '—' : weeklyMetrics.totalCalls) : weeklyMetrics.totalCalls}
                       change={weeklyMetrics.callsChange}
                       isPositive={weeklyMetrics.callsPositive}
                       icon={Phone}
@@ -690,13 +712,123 @@ export default function Dashboard() {
           />
 
           <div
-             style={{
-                background: 'rgba(255, 255, 255, 0.10)',
-                boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.10), 0 1px 2px -1px rgba(0, 0, 0, 0.10)'
-             }}
-             className="backdrop-blur-xl rounded-xl overflow-hidden border border-slate-100 dark:border-slate-700 dark:bg-slate-800/50"
+            className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm"
           >
-             <div className="p-6 border-b border-slate-100/30 dark:border-slate-800 flex justify-between items-center">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-700">
+              <div className="flex items-center space-x-2 mb-4">
+                <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
+                  <Route className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">Agent Routing</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Get agent recommendations for incoming calls</p>
+                </div>
+              </div>
+              <div className="mb-4 p-4 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 text-sm text-slate-700 dark:text-slate-300 space-y-3">
+                <p className="font-medium text-slate-900 dark:text-white">How agents are recommended</p>
+                <p>When a call comes in, the system finds the best agents by asking:</p>
+                <ol className="list-decimal list-inside space-y-2 ml-2">
+                  <li><strong>Have they handled this type of call before?</strong> (Product / Segment) — Enter a product code (e.g. SBSEG_US_OL_PRPM_QBO_A_PHN) or a segment name (e.g. Product Support). Product codes use call history; segment names match agents by their domain. The &quot;Affinity&quot; column shows calls handled for that product.</li>
+                  <li><strong>Have they handled this channel?</strong> (Phone, Chat, etc.) — Agents with more experience on the selected channel get a boost.</li>
+                  <li><strong>Do they usually resolve issues without transferring?</strong> — Agents with higher resolution rates and lower transfer rates score better.</li>
+                </ol>
+                <p><strong>What the score means:</strong> The score (0–1) is a single number combining all of the above. Higher = better fit for this call. When scores tie, agents with more contacts or higher affinity rank first.</p>
+                <p><strong>Availability:</strong> We only show agents who are typically working at this time of day.</p>
+              </div>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleFetchRouting();
+                }}
+                className="flex flex-wrap gap-3 items-end"
+              >
+                <div className="flex-1 min-w-[180px]">
+                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Product / Segment</label>
+                  <input
+                    type="text"
+                    value={routingProduct}
+                    onChange={(e) => setRoutingProduct(e.target.value)}
+                    placeholder="e.g. Product Support or SBSEG_US_OL_PRPM_QBO_A_PHN"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  />
+                </div>
+                <div className="w-36">
+                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Channel</label>
+                  <select
+                    value={routingChannel}
+                    onChange={(e) => setRoutingChannel(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  >
+                    <option value="">Any</option>
+                    <option value="PHONE">Phone</option>
+                    <option value="CHAT">Chat</option>
+                    <option value="INBOUND">Inbound</option>
+                    <option value="OUTBOUND">Outbound</option>
+                  </select>
+                </div>
+                <button
+                  type="submit"
+                  disabled={routingLoading}
+                  className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white rounded-lg transition-colors text-sm font-medium"
+                >
+                  {routingLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Loading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4" />
+                      <span>Get Recommendations</span>
+                    </>
+                  )}
+                </button>
+              </form>
+              {routingError && (
+                <p className="mt-3 text-sm text-amber-600 dark:text-amber-400">{routingError}</p>
+              )}
+              {routingRecommendations.length > 0 && (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-600">
+                      <tr>
+                        <th className="py-2 text-left font-medium">Agent</th>
+                        <th className="py-2 text-left font-medium">Segment</th>
+                        <th className="py-2 text-right font-medium">Resolution</th>
+                        <th className="py-2 text-right font-medium">Transfer</th>
+                        <th className="py-2 text-right font-medium">Affinity</th>
+                        <th className="py-2 text-right font-medium">Score</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-600">
+                      {routingRecommendations.map((rec) => (
+                        <tr key={rec.expert_id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                          <td className="py-2">
+                            <Link
+                              to={`/agent/${encodeURIComponent(rec.expert_id)}`}
+                              className="font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                              {rec.name}
+                            </Link>
+                          </td>
+                          <td className="py-2 text-slate-600 dark:text-slate-400">{rec.segment}</td>
+                          <td className="py-2 text-right">{rec.resolution_rate}%</td>
+                          <td className="py-2 text-right">{rec.transfer_rate}%</td>
+                          <td className="py-2 text-right">{rec.affinity_volume}</td>
+                          <td className="py-2 text-right font-medium">{rec.score.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div
+             className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm"
+          >
+             <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
                 <div className="flex items-center space-x-2">
                   <div className="p-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
                     <Trophy className="w-5 h-5 text-yellow-600 dark:text-yellow-500" />
@@ -710,7 +842,7 @@ export default function Dashboard() {
              </div>
              <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50/50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 font-medium border-b border-slate-200 dark:border-slate-700">
+                  <thead className="bg-slate-50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 font-medium border-b border-slate-200 dark:border-slate-600">
                     <tr>
                       <th className="px-6 py-4">Agent ID</th>
                       <th className="px-6 py-4">Segment</th>
@@ -718,10 +850,15 @@ export default function Dashboard() {
                       <th className="px-6 py-4">Average Handle Time</th>
                       <th className="px-6 py-4">Utilization Rate</th>
                       <th className="px-6 py-4">Resolution Rate</th>
-                      <th className="px-6 py-4">Composite Score</th>
+                      <th
+                        className="px-6 py-4"
+                        title="30% resolution rate, 20% first-call resolution, 20% efficiency, 15% occupancy, 15% volume"
+                      >
+                        Composite Score
+                      </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100/50 dark:divide-slate-700/50">
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-600">
                     {agentsLoading ? (
                       <tr>
                         <td colSpan={7} className="px-6 py-8 text-center">
@@ -739,7 +876,7 @@ export default function Dashboard() {
                       </tr>
                     ) : (
                       topAgents.map((agent) => (
-                        <tr key={agent.expert_id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30 transition-colors cursor-pointer">
+                        <tr key={agent.expert_id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer">
                           <td className="px-6 py-4">
                             <Link
                               to={`/agent/${encodeURIComponent(agent.expert_id)}`}

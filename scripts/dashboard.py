@@ -13,16 +13,16 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _ROOT = Path(__file__).resolve().parent.parent
 _SRC = _ROOT / "src"
 sys.path.insert(0, str(_SRC))
-sys.path.insert(0, SCRIPT_DIR)  # keeps demand_forecasting_model importable
+sys.path.insert(0, SCRIPT_DIR)
 
-from demand_forecasting_model import CallDemandForecaster
-from staffing_optimizer import (
+from demand_forecasting_model import CallDemandForecaster  # noqa: E402
+from staffing_optimizer import (  # noqa: E402
     OptimizationThresholds,
     ShiftConstraints,
     StaffingOptimizer,
 )
 
-from main_module.workforce import (
+from main_module.workforce import (  # noqa: E402
     CallCenterEmulator,
     EmulatorConfig,
     HybridForecaster,
@@ -239,7 +239,9 @@ def main():
             if st.session_state.applied_config["model_type"]
             == "Hybrid (Recommended)"
             else 1,
-            help="Hybrid model uses short-term model for <7 days and long-term model for >=7 days",
+            help=(
+                "Hybrid model uses short-term for <7 days, long-term for >=7"
+            ),
         )
 
         st.subheader("📅 Date Selection")
@@ -325,7 +327,7 @@ def main():
             if st.session_state.applied_config["emulator_model"]
             == "Erlang-A (Recommended)"
             else 1,
-            help="Erlang-A models customer abandonment realistically. Erlang-C assumes infinite patience.",
+            help="Erlang-A: abandonment. Erlang-C: infinite patience",
         )
         avg_patience_input = st.slider(
             "Avg Customer Patience (s)",
@@ -333,7 +335,7 @@ def main():
             max_value=600,
             value=st.session_state.applied_config["avg_patience"],
             step=30,
-            help="Average time a customer will wait before abandoning (Erlang-A only)",
+            help="Avg wait before abandoning (Erlang-A only)",
         )
 
         submitted = st.form_submit_button(
@@ -475,7 +477,7 @@ def main():
 
         if is_weekend:
             st.error(
-                "🚫 CLOSED - Customer service is not available on weekends (Mon-Fri 5am-5pm PT only)"
+                "🚫 CLOSED - Not available on weekends (Mon-Fri 5am-5pm PT)"
             )
         elif is_tax_deadline:
             st.warning("⚠️ TAX DEADLINE PERIOD - Expect high call volume!")
@@ -624,8 +626,9 @@ def main():
                 textposition="outside",
             )
         )
+        fdate = selected_date.strftime("%B %d, %Y")
         fig.update_layout(
-            title=f"Predicted Call Volume - {selected_date.strftime('%B %d, %Y')}",
+            title=f"Predicted Call Volume - {fdate}",
             xaxis_title="Time",
             yaxis_title="Calls",
             height=500,
@@ -650,9 +653,10 @@ def main():
             st.plotly_chart(fig_hourly, use_container_width=True)
         with col2:
             st.subheader("📊 Key Statistics")
-            st.write(
-                f"**Peak Time:** {demand_df.loc[demand_df['predicted_calls'].idxmax(), 'time']}"
-            )
+            peak_time = demand_df.loc[
+                demand_df["predicted_calls"].idxmax(), "time"
+            ]
+            st.write(f"**Peak Time:** {peak_time}")
             st.write(f"**Peak Volume:** {peak_calls} calls")
             st.write(f"**Total Daily Volume:** {total_calls} calls")
             if use_hybrid and "model_used" in demand_df.columns:
@@ -1022,47 +1026,53 @@ def main():
 
         with col1:
             st.write("**🔄 Repeat Call Reduction**")
+            rr = savings["repeat_call_reduction"]
             st.write(
-                f"Current: {savings['repeat_call_reduction']['current_repeat_calls']:,} calls ({savings['repeat_call_reduction']['current_rate']})"
+                f"Current: {rr['current_repeat_calls']:,} calls "
+                f"({rr['current_rate']})"
             )
             st.write(
-                f"If reduced by 10%: **{savings['repeat_call_reduction']['if_reduced_by_10%']:,} fewer calls**"
+                f"If reduced by 10%: **{rr['if_reduced_by_10%']:,} "
+                f"fewer calls**"
             )
-            st.write(
-                f"Time saved: **{savings['repeat_call_reduction']['time_saved_hours']} hours**"
-            )
+            st.write(f"Time saved: **{rr['time_saved_hours']} hours**")
 
             st.write("")
             st.write("**🤖 Self-Service Improvement**")
+            ss = savings["self_service_improvement"]
+            n_ss = ss["calls_without_self_service"]
             st.write(
-                f"Calls without self-service: {savings['self_service_improvement']['calls_without_self_service']:,} ({savings['self_service_improvement']['current_rate']})"
+                f"Calls w/o self-service: {n_ss:,} "
+                f"({ss['current_rate']})"
             )
             st.write(
-                f"If 10% deflected: **{savings['self_service_improvement']['if_10%_deflected']:,} fewer calls**"
+                f"If 10% deflected: **{ss['if_10%_deflected']:,} fewer calls**"
             )
-            st.write(
-                f"Time saved: **{savings['self_service_improvement']['time_saved_hours']} hours**"
-            )
+            st.write(f"Time saved: **{ss['time_saved_hours']} hours**")
 
         with col2:
             st.write("**📞 Transfer Reduction**")
+            tr = savings["transfer_reduction"]
             st.write(
-                f"Current: {savings['transfer_reduction']['current_transfers']:,} transfers ({savings['transfer_reduction']['current_rate']})"
+                f"Current: {tr['current_transfers']:,} transfers "
+                f"({tr['current_rate']})"
             )
             st.write(
-                f"If reduced by 20%: **{savings['transfer_reduction']['if_reduced_by_20%']:,} fewer transfers**"
+                f"If reduced by 20%: **{tr['if_reduced_by_20%']:,} "
+                f"fewer transfers**"
             )
-            st.write(
-                f"Time saved: **{savings['transfer_reduction']['time_saved_hours']} hours**"
-            )
+            st.write(f"Time saved: **{tr['time_saved_hours']} hours**")
 
             st.write("")
             st.write("**⚠️ Abandonment Recovery**")
+            ar = savings["abandonment_recovery"]
             st.write(
-                f"Current abandoned: {savings['abandonment_recovery']['current_abandoned']:,} ({savings['abandonment_recovery']['current_rate']})"
+                f"Current abandoned: {ar['current_abandoned']:,} "
+                f"({ar['current_rate']})"
             )
             st.write(
-                f"Potential to recover: **{savings['abandonment_recovery']['potential_recovered']:,} customers**"
+                f"Potential to recover: **{ar['potential_recovered']:,} "
+                f"customers**"
             )
 
         st.markdown("---")
@@ -1084,41 +1094,34 @@ def main():
         if use_hybrid:
             st.success("**Hybrid Forecaster** (Recommended)")
             st.write("""
-            The hybrid forecaster uses two specialized models optimized for different forecast horizons:
+            The hybrid forecaster uses two specialized models:
 
-            - **Short-term model** (< 7 days ahead): Optimized for predictions using recent data
-              - Uses lag features (what happened 30 min, 1 hour, 1 day ago)
-              - Uses rolling statistics (averages, trends from recent intervals)
-              - Best for operational planning
+            - **Short-term** (< 7 days): Uses recent data, lag features,
+              rolling stats. Best for operational planning.
 
-            - **Long-term model** (≥ 7 days ahead): Optimized for predictions without recent data
-              - Uses historical patterns (same day of week, same month, same hour)
-              - Uses seasonal indicators (tax season, holidays)
-              - Best for capacity planning
+            - **Long-term** (≥ 7 days): Uses historical patterns, seasonal
+              indicators. Best for capacity planning.
             """)
 
             if forecaster.max_training_date:
                 st.write(
-                    f"**Training data ends:** {forecaster.max_training_date.strftime('%Y-%m-%d')}"
+                    f"**Training data ends:** "
+                    f"{forecaster.max_training_date.strftime('%Y-%m-%d')}"
                 )
                 st.write(
-                    f"**Short-term threshold:** {forecaster.short_term_threshold_days} days"
+                    f"**Short-term threshold:** "
+                    f"{forecaster.short_term_threshold_days} days"
                 )
-                st.write(
-                    f"**Short-term features:** {len(forecaster.short_term_features)}"
-                )
-                st.write(
-                    f"**Long-term features:** {len(forecaster.long_term_features)}"
-                )
+                n_short = len(forecaster.short_term_features)
+                st.write(f"**Short-term features:** {n_short}")
+                n_long = len(forecaster.long_term_features)
+                st.write(f"**Long-term features:** {n_long}")
         else:
             st.info("**Single Model Forecaster**")
             st.write("""
-            The single model uses one ensemble model for all forecast horizons:
-
-            - Combines Gradient Boosting, Random Forest, and Ridge Regression
-            - Uses 70+ engineered features
-            - Works well for short-term predictions
-            - May be less accurate for long-term predictions (relies on analogous historical data)
+            Single ensemble for all horizons: Gradient Boosting, Random Forest,
+            Ridge Regression. 70+ features. Good for short-term; may be less
+            accurate for long-term (relies on analogous historical data).
             """)
 
         st.markdown("---")

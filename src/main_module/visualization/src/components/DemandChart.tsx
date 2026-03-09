@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceArea, ErrorBar } from 'recharts';
-import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { fetchWeeklyForecast, WeeklyForecastDay } from '../lib/api';
 
@@ -42,16 +42,21 @@ function fallbackWeeklyForecast(weekStart: Date): WeeklyForecastDay[] {
 export function DemandForecastChart({ weekStart, onPrevWeek, onNextWeek, selectedDate, onSelectDate, onJumpToToday }: DemandForecastChartProps) {
   const { theme } = useTheme();
 
-  const [apiData, setApiData] = useState<WeeklyForecastDay[]>([]);
+  const [apiData, setApiData] = useState<WeeklyForecastDay[] | null>(null);
 
   useEffect(() => {
+    setApiData(null);
     fetchWeeklyForecast(weekStart)
       .then(setApiData)
       .catch(() => setApiData(fallbackWeeklyForecast(weekStart)));
   }, [weekStart]);
 
   const currentData = useMemo(() => {
-    const data = apiData.length > 0 ? apiData : fallbackWeeklyForecast(weekStart);
+    const data = apiData !== null && apiData.length > 0
+      ? apiData
+      : apiData !== null
+        ? fallbackWeeklyForecast(weekStart)
+        : [];
     if (data.length === 0) return [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -160,7 +165,15 @@ export function DemandForecastChart({ weekStart, onPrevWeek, onNextWeek, selecte
         </div>
       </div>
 
-      <div style={{ width: '100%', height: 'calc(100% - 60px)' }}>
+      <div style={{ width: '100%', height: 'calc(100% - 60px)' }} className="relative">
+          {apiData === null && (
+            <div className="absolute inset-0 flex items-center justify-center bg-slate-50/80 dark:bg-slate-900/80 z-10 rounded-lg">
+              <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-sm">Loading forecast...</span>
+              </div>
+            </div>
+          )}
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={currentData}

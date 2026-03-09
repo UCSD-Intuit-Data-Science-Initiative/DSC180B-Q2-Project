@@ -29,12 +29,20 @@ Hot reload is enabled — edits to any `.py` file restart the server automatical
 | `localhost:8000/api/metrics?date=2025-04-15` | Day-level summary (total calls, peak agents, avg SLA, avg wait) |
 | `localhost:8000/api/forecast?date=2025-04-15` | Predicted call volume per 30-min slot |
 | `localhost:8000/api/staffing?date=2025-04-15` | Staffing schedule per 30-min slot |
+| `localhost:8000/api/routing/recommend` | Agent routing by product/channel |
 | `localhost:8000/docs` | Interactive Swagger UI to test all endpoints |
 
 The `/api/staffing` endpoint also accepts constraint parameters matching the React simulation sliders:
 
 ```
 /api/staffing?date=2025-04-15&min_sla=0.90&max_wait=45&max_occupancy=0.80
+```
+
+The `/api/routing/recommend` endpoint returns agent recommendations for routing:
+
+```
+/api/routing/recommend?product_group_sku=SBSEG_US_OL_PRPM_QBO_A_PHN&channel=PHONE&top_n=5
+/api/routing/recommend?datetime_utc=2025-04-15T14:30:00
 ```
 
 ## Project structure
