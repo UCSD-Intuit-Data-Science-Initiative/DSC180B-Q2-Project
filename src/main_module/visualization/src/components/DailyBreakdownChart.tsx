@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Customized, Rectangle } from 'recharts';
 import { Activity, ChevronLeft, ChevronRight, Phone, Users } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 // import { fetchForecast } from '../lib/api'; // Unused — chart uses staffingData prop instead
@@ -279,6 +279,47 @@ export function DailyBreakdownChart({ selectedDate, onPrevDay, onNextDay, onJump
               strokeWidth={2.5}
               dot={false}
             />
+            {/* Vertical line showing current time (only when viewing today) */}
+            {isToday && currentTimeSlot && (
+              <Customized
+                component={(props: any) => {
+                  const { xAxisMap, yAxisMap, offset } = props;
+                  if (!xAxisMap || !xAxisMap[0]) return null;
+                  const xAxis = xAxisMap[0];
+                  const yAxis = yAxisMap?.left;
+                  const dataIndex = staffingData?.findIndex(d => d.time === currentTimeSlot);
+                  if (dataIndex === undefined || dataIndex < 0) return null;
+
+                  const bandWidth = (xAxis.width) / (staffingData?.length || 1);
+                  const x = xAxis.x + dataIndex * bandWidth + bandWidth / 2;
+                  const yStart = offset?.top || 20;
+                  const yEnd = yAxis ? (yAxis.y + yAxis.height) : (yStart + 300);
+
+                  return (
+                    <g>
+                      <line
+                        x1={x}
+                        y1={yStart}
+                        x2={x}
+                        y2={yEnd}
+                        stroke={isDark ? '#f97316' : '#ea580c'}
+                        strokeWidth={2}
+                        strokeDasharray="4 4"
+                      />
+                      <text
+                        x={x + 4}
+                        y={yStart + 12}
+                        fill={isDark ? '#f97316' : '#ea580c'}
+                        fontSize={11}
+                        fontWeight={600}
+                      >
+                        Now
+                      </text>
+                    </g>
+                  );
+                }}
+              />
+            )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
