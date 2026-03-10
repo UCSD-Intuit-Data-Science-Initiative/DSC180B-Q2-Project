@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Calculator, RefreshCw, Target, Clock, Users, Phone } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Calculator, RefreshCw, Target, Clock, Users } from 'lucide-react';
 import { fetchStaffing, StaffingSlot } from '../lib/api';
 
 interface SimulationPanelProps {
@@ -41,11 +40,11 @@ function calculateRequiredAgents(callsPerHalfHour: number, targetSLA: number, ta
   return Math.max(1, finalAgents);
 }
 
-// Get current time slot label in UTC (API slots are labeled in UTC)
+// Get current time slot label in local time
 function getCurrentTimeSlot() {
   const now = new Date();
-  const hour = now.getUTCHours();
-  const minute = now.getUTCMinutes();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
   // Round to nearest 30 min interval
   const roundedMinute = minute < 15 ? 0 : minute < 45 ? 30 : 60;
   let finalHour = hour;
@@ -136,55 +135,106 @@ export function SimulationPanel({ initialCallVolume, onReset, selectedDate, dail
   //   }
   // }, [selectedDate, targetSLA, targetWaitTime, targetOccupancy, dailyBreakdownData, currentTimeSlot, isToday, onStaffingDataChange, onCurrentStatsChange]);
 
-  // NEW USEEFFECT — Fetch staffing data from backend API whenever date or slider targets change
+  // Cache for forecast data (keyed by date string)
+  const forecastCache = useRef<Map<string, StaffingSlot[]>>(new Map());
+
+  // Pre-fetch demo dates on mount (March 13, 2026 and surrounding days)
+  useEffect(() => {
+    const demoDates = [
+      new Date(2026, 2, 12), // March 12
+      new Date(2026, 2, 13), // March 13 (demo day)
+      new Date(2026, 2, 14), // March 14
+    ];
+
+    demoDates.forEach(date => {
+      const dateKey = date.toISOString().split('T')[0];
+      if (!forecastCache.current.has(dateKey)) {
+        fetchStaffing(date, 90, 30, 80)
+          .then(slots => {
+            forecastCache.current.set(dateKey, slots);
+            console.log(`Pre-cached forecast for ${dateKey}`);
+          })
+          .catch(() => {});
+      }
+    });
+  }, []);
+
+  // Function to update stats from slots
+  const updateStatsFromSlots = useCallback((slots: StaffingSlot[], sla: number, wait: number, occupancy: number) => {
+    // Recalculate agents client-side for instant feedback
+    const updatedSlots = slots.map(s => ({
+      ...s,
+      agents: calculateRequiredAgents(s.predicted_calls, sla, wait, occupancy),
+    }));
+
+    setStaffingSlots(updatedSlots);
+
+    if (onStaffingDataChange) {
+      onStaffingDataChange(updatedSlots.map(s => ({
+        time: s.time,
+        calls: s.predicted_calls,
+        agents: s.agents,
+      })));
+    }
+
+    if (onCurrentStatsChange) {
+      const peak = Math.max(...updatedSlots.map(s => s.predicted_calls));
+      const peakAgents = Math.max(...updatedSlots.map(s => s.agents));
+      const slot = isToday
+        ? (updatedSlots.find(s => s.time === currentTimeSlot) ?? updatedSlots[updatedSlots.length - 1])
+        : updatedSlots.find(s => s.predicted_calls === peak) ?? updatedSlots[0];
+      onCurrentStatsChange({
+        currentCallVolume: slot?.predicted_calls ?? 0,
+        currentRequiredAgents: slot?.agents ?? 0,
+        peakCallVolume: peak,
+        peakRequiredAgents: peakAgents,
+        currentTimeSlot: isToday ? currentTimeSlot : (slot?.time ?? ''),
+        isToday,
+      });
+    }
+  }, [isToday, currentTimeSlot, onStaffingDataChange, onCurrentStatsChange]);
+
+  // Fetch forecast data (call volume) only when date changes, cache it
   useEffect(() => {
     if (!selectedDate) return;
 
-    let isMounted = true;
+    const dateKey = selectedDate.toISOString().split('T')[0];
+    const cached = forecastCache.current.get(dateKey);
 
+    if (cached) {
+      // Use cached forecast, recalculate agents with current targets
+      updateStatsFromSlots(cached, targetSLA, targetWaitTime, targetOccupancy);
+      return;
+    }
+
+    // Fetch from API and cache
+    let isMounted = true;
     fetchStaffing(selectedDate, targetSLA, targetWaitTime, targetOccupancy)
       .then(slots => {
         if (!isMounted) return;
-
-        setStaffingSlots(slots);
-
-        // Map API slots to the shape DailyBreakdownChart expects
-        if (onStaffingDataChange) {
-          onStaffingDataChange(slots.map(s => ({
-            time: s.time,
-            calls: s.predicted_calls,
-            agents: s.agents,
-          })));
-        }
-
-        // Current time slot stats for the stat cards
-        if (onCurrentStatsChange) {
-          const peak = Math.max(...slots.map(s => s.predicted_calls));
-          const peakAgents = Math.max(...slots.map(s => s.agents));
-          // For today: show the current UTC time slot (clamp to last slot if outside business hours).
-          // For past/future: show the peak slot.
-          const slot = isToday
-            ? (slots.find(s => s.time === currentTimeSlot) ?? slots[slots.length - 1])
-            : slots.find(s => s.predicted_calls === peak) ?? slots[0];
-          onCurrentStatsChange({
-            currentCallVolume: slot?.predicted_calls ?? 0,
-            currentRequiredAgents: slot?.agents ?? 0,
-            peakCallVolume: peak,
-            peakRequiredAgents: peakAgents,
-            currentTimeSlot: isToday ? currentTimeSlot : (slot?.time ?? ''),
-            isToday,
-          });
-        }
+        forecastCache.current.set(dateKey, slots);
+        updateStatsFromSlots(slots, targetSLA, targetWaitTime, targetOccupancy);
       })
       .catch(error => {
         console.error("Failed to fetch staffing data:", error);
       });
 
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, targetSLA, targetWaitTime, targetOccupancy, currentTimeSlot, isToday]);
+  }, [selectedDate]);
+
+  // When sliders change, recalculate agents client-side instantly (no API call)
+  useEffect(() => {
+    if (!selectedDate) return;
+
+    const dateKey = selectedDate.toISOString().split('T')[0];
+    const cached = forecastCache.current.get(dateKey);
+
+    if (cached) {
+      updateStatsFromSlots(cached, targetSLA, targetWaitTime, targetOccupancy);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetSLA, targetWaitTime, targetOccupancy, currentTimeSlot, isToday]);
 
   const handleReset = () => {
     setTargetSLA(90);
