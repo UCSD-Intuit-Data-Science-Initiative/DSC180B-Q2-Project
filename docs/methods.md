@@ -2,6 +2,7 @@
 layout: default
 title: Methods
 nav_order: 2
+has_children: true
 ---
 
 # Modeling Strategy
@@ -10,12 +11,12 @@ _This page outlines the methodologies, mathematical frameworks, and key decision
 
 ## Problem Framing
 
-- **Prediction target**: Incoming call volumes aggregated at 30-minute intervals ($C_t$).
-- **Business KPIs**: Operational labor costs and customer wait times. The models connect volume predictions to optimal interval-level agent staffing ($N_t$), minimizing minimum headcount as a proxy for labor cost.
+- **Prediction target**: Incoming call volumes aggregated at 30-minute intervals ($$C_t$$).
+- **Business KPIs**: Operational labor costs and customer wait times. The models connect volume predictions to optimal interval-level agent staffing ($$N_t$$), minimizing minimum headcount as a proxy for labor cost.
 - **Constraints**: Staffing optimization is strictly bound by three business thresholds:
-  - Service Level (SLA) $\ge$ **0.80** (80% of calls answered within **60 seconds**)
-  - Average Wait Time $\le$ **60 seconds**
-  - Agent Occupancy $\le$ **0.85** (85%)
+  - Service Level (SLA) $$\ge$$ **0.80** (80% of calls answered within **60 seconds**)
+  - Average Wait Time $$\le$$ **60 seconds**
+  - Agent Occupancy $$\le$$ **0.85** (85%)
 
 ## Baseline Model
 
@@ -26,7 +27,7 @@ $$
 P_{\text{wait}}(N_t, a_t) = \frac{\frac{a_t^{N_t}}{N_t!}\left(\frac{N_t}{N_t-a_t}\right)}{\sum_{k=0}^{N_t-1}\frac{a_t^k}{k!} + \frac{a_t^{N_t}}{N_t!}\left(\frac{N_t}{N_t-a_t}\right)}
 $$
 
-_(Where $a_t$ is the offered load. Factorial terms are evaluated in log space to avoid overflow.)_
+_(Where $$a_t$$ is the offered load. Factorial terms are evaluated in log space to avoid overflow.)_
 
 ## Feature Engineering
 
@@ -56,13 +57,13 @@ $$
 To translate forecasted volumes into staffing requirements, we treat interval-level staffing as a discrete optimization problem. 
 
 ### Abandonment-Aware Performance Emulator
-Instead of slow discrete-event simulation, the optimizer queries a deterministic analytical emulator. It modifies the standard Erlang-C wait probability with an Erlang-A-inspired adjustment for caller abandonment, assuming an average patience ($\eta$) of **180 seconds**:
+Instead of slow discrete-event simulation, the optimizer queries a deterministic analytical emulator. It modifies the standard Erlang-C wait probability with an Erlang-A-inspired adjustment for caller abandonment, assuming an average patience ($$\eta$$) of **180 seconds**:
 
 $$
 P_{\text{abandon}}(N_t) \approx P_{\text{wait}}(N_t, a_t) \cdot \frac{\theta_t a_t}{N_t(1-\rho_t) + \theta_t a_t}
 $$
 
-_(Where $\theta_t = \frac{\eta}{\mu_t}$ and $\rho_t = \frac{a_t}{N_t}$)_
+_(Where $$\theta_t = \frac{\eta}{\mu_t}$$ and $$\rho_t = \frac{a_t}{N_t}$$)_
 
 Wait time and SLA metrics are subsequently derived from these abandonment-adjusted probabilities:
 
@@ -75,9 +76,9 @@ $$
 $$
 
 ### Optimization Algorithm
-Since queueing performance monotonically improves with staffing, we locate the minimum feasible headcount ($N_t^\star$) using **binary search** instead of a linear scan. 
-1. We compute an occupancy-aware lower bound: $N_{\min} = \max\left(1,\left\lceil \frac{a_t}{\tau_\rho} \right\rceil + 1\right)$.
-2. We evaluate midpoints between $N_{\min}$ and a safety upper bound $N_{\max}$.
+Since queueing performance monotonically improves with staffing, we locate the minimum feasible headcount ($$N_t^\star$$) using **binary search** instead of a linear scan. 
+1. We compute an occupancy-aware lower bound: $$N_{\min} = \max\left(1,\left\lceil \frac{a_t}{\tau_\rho} \right\rceil + 1\right)$$.
+2. We evaluate midpoints between $$N_{\min}$$ and a safety upper bound $$N_{\max}$$.
 3. The minimum feasible integer satisfying SLA, Wait Time, and Occupancy thresholds is selected.
 
 $$
@@ -86,6 +87,8 @@ $$
 
 ## Deployment Considerations
 
-- **Pipeline Integration**: The workforce optimization module directly connects the LightGBM forecaster to downstream operational planning. For every interval $t$, the system predicts $C_t$, retrieves historical Average Handle Time ($H_t$), computes $N_t^\star$, and outputs recommended headcounts alongside emulator metrics.
-- **Handling Edge Cases**: The optimization module contains logic guards for zero-demand intervals (returns $N_t^\star = 0$) and overloaded intervals (bounds overflow rather than evaluating unstable queueing expressions). 
+For full model specifications, feature lists, hyperparameters, and evaluation benchmarks, see the [Model Card](MODEL_CARD_CombinedForecaster.md).
+
+- **Pipeline Integration**: The workforce optimization module directly connects the LightGBM forecaster to downstream operational planning. For every interval $$t$$, the system predicts $$C_t$$, retrieves historical Average Handle Time ($$H_t$$), computes $$N_t^\star$$, and outputs recommended headcounts alongside emulator metrics.
+- **Handling Edge Cases**: The optimization module contains logic guards for zero-demand intervals (returns $$N_t^\star = 0$$) and overloaded intervals (bounds overflow rather than evaluating unstable queueing expressions). 
 - **Downstream Usage**: Interval-level outputs act as operational benchmarks for downstream shift scheduling modules, dictating the construction of actual agent shifts based on historical availability patterns.

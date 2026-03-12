@@ -1,3 +1,10 @@
+---
+layout: default
+title: Model Card
+parent: Methods
+nav_order: 1
+---
+
 # Model Card: Combined Demand Forecaster
 
 ## Model Summary

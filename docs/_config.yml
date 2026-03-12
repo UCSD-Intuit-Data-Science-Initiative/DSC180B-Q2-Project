@@ -41,7 +41,6 @@ exclude:
   - MODEL_CARD_SingleModel.md
   - MODEL_CARD_HybridModel.md
   - MODEL_CARD_SingleModel.md
-  - MODEL_CARD_CombinedForecaster.md
   - model_card_forecasting_4_weeks.md
   - model_card_forecasting_dynamic_weeks.md
   
