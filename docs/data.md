@@ -10,15 +10,14 @@ _Our datasets for this project contain comprehensive daily call center operation
 
 
 ## Data Inventory
+**Note:** The actual dataset files have been excluded from this repository for confidential reasons.
 
-| Dataset | Source | Location | Notes |
-| --- | --- | --- | --- |
-| Call-Related Data | Routing / Telephony Logs | `data/raw/call_related_data.parquet` | Granular interaction leg details. Contains `customer_id` and `expert_id` (needs masking). |
-| Expert Metadata | WFM / HR Systems | `data/raw/expert_metadata.parquet` | Expert lifecycle, status, and aggregated performance metrics. |
-| Historical Outcomes | CRM / Ticketing System | `data/raw/historical_outcomes.parquet` | Session-level resolution, transfer counts, and outcomes. |
-| Expert State & Interval | Presence / Activity Logs | `data/raw/expert_state_interval.parquet` | 30-minute interval state, availability, and occupancy tracking. |
-
-_Keep this table current as new datasets are added or existing ones change._
+| Dataset | Source | Notes |
+| --- | --- | --- |
+| Call-Related Data | Routing / Telephony Logs | Granular interaction leg details. Contains `customer_id` and `expert_id` (needs masking). |
+| Expert Metadata | WFM / HR Systems | Expert lifecycle, status, and aggregated performance metrics. |
+| Historical Outcomes | CRM / Ticketing System | Session-level resolution, transfer counts, and outcomes. |
+| Expert State & Interval | Presence / Activity Logs | 30-minute interval state, availability, and occupancy tracking. |
 
 ---
 
