@@ -3,8 +3,9 @@
 ## Model Summary
 
 ### Overview
+
 | Property | Value |
-|----------|-------|
+|---|---|
 | **Model Name** | CombinedForecaster |
 | **Version** | 1.0 |
 | **Type** | Regression (Multi-Horizon Time Series Forecasting) |
@@ -13,9 +14,11 @@
 | **Saved Model** | `scripts/combined_forecast_model.pkl` |
 
 ### Description
+
 The Combined Demand Forecaster unifies the best elements of two predecessor models — the **HybridForecaster** (multi-dataset, multi-horizon LightGBM architecture) and the **Dynamic Weeks Forecaster** (anomaly smoothing, major/minor holiday distinction, holiday profile overrides, and tax-cycle features). It predicts 30-minute interval call volume across two horizons: a **short-term model** (< 7 days ahead) using recent lags and operational features, and a **long-term 3-model ensemble** (≥ 7 days ahead) using historical patterns and year-over-year indicators. On major holidays, ML predictions are bypassed in favor of historical holiday profiles for more reliable estimates.
 
 ### Architecture
+
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                   COMBINED FORECASTER v1                         │
@@ -61,7 +64,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 ### What It Combines
 
 | Feature | Source: HybridForecaster | Source: Dynamic Weeks |
-|---------|------------------------|-----------------------|
+|---|---|---|
 | Multi-horizon (ST + LT) | ✓ | |
 | LightGBM + early stopping | ✓ | |
 | 3-model LT ensemble | ✓ | |
@@ -86,8 +89,9 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 - Forecast horizon (automatic routing)
 
 **Short-Term Model Features (55 total):**
+
 | Category | Features | Count |
-|----------|----------|-------|
+|---|---|---|
 | Temporal | hour, minute, day_of_week, day_of_month, month, time_slot, week_of_year, day_of_year | 8 |
 | Tax/Holiday | is_holiday, is_major_holiday, is_january, days_to_tax_deadline, tax_urgency, is_post_tax_drop | 6 |
 | Cyclical Encoding | hour_sin, hour_cos, dow_sin, month_sin, month_cos | 5 |
@@ -103,8 +107,9 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 | Year-over-Year | yoy_same_dow_hour_mean | 1 |
 
 **Long-Term Model Features (45 total):**
+
 | Category | Features | Count |
-|----------|----------|-------|
+|---|---|---|
 | Temporal | hour, day_of_week, day_of_month, month, time_slot, week_of_year, day_of_year | 7 |
 | Tax/Holiday | is_holiday, is_major_holiday, is_january, days_to_tax_deadline, tax_urgency, is_post_tax_drop | 6 |
 | Cyclical Encoding | hour_cos, dow_sin, month_sin, month_cos | 4 |
@@ -124,6 +129,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 ## Model Usage and Limitations
 
 ### Intended Usage
+
 - **Primary Use:** Multi-horizon call volume forecasting for Intuit QuickBooks / SBSEG support
 - **Users:** Call center managers, workforce planners, capacity analysts
 - **Applications:**
@@ -133,6 +139,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
   - Integration with CallCenterEmulator and SupplyOptimizer for staffing recommendations
 
 ### Benefits Over Predecessor Models
+
 - **Anomaly Robustness:** Known data outages (e.g., 2025-08-29) are automatically smoothed via interpolation, preventing the model from training on corrupted intervals
 - **Holiday Accuracy:** Major holidays (New Year's, Thanksgiving, Christmas) use historical profile lookup instead of ML prediction, which is more reliable for these rare, extreme-pattern days
 - **Richer Calendar Signals:** `is_major_holiday`, `is_january`, and `is_post_tax_drop` capture domain-specific seasonal patterns that the pure HybridForecaster lacked
@@ -140,6 +147,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 - **All HybridForecaster Strengths Retained:** Multi-dataset integration, dual-horizon architecture, recency weighting, LightGBM ensemble, operational features
 
 ### Limitations
+
 - **Year-over-Year Drift:** A 5–15% volume decline was observed between 2024 and 2025; recency weighting mitigates but does not fully eliminate this
 - **Business Hours:** Assumes UTC timestamps with Pacific Time business hours (UTC 13:00–01:00, Mon–Fri)
 - **Training Data Requirement:** Requires data spanning at least two years for YoY features
@@ -148,6 +156,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 - **Known Anomalies List:** The `_KNOWN_ANOMALIES` list must be manually updated when new outages are identified
 
 ### Out-of-Scope Uses
+
 - Sub-interval predictions (less than 30 minutes)
 - Individual call outcome or duration prediction
 - Non-call-center demand forecasting without retraining
@@ -162,7 +171,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 **Test Set Performance (Train: Jan–Oct 2024, Test: Jan–Oct 2025):**
 
 | Metric | Short-Term (< 7 days) | Long-Term (≥ 7 days) |
-|--------|----------------------|---------------------|
+|---|---|---|
 | **MAE** | 28.56 calls | 119.22 calls |
 | **RMSE** | 58.96 calls | 220.86 calls |
 | **R²** | 0.9979 | 0.9705 |
@@ -171,7 +180,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 ### Head-to-Head Comparison (Same Test Set)
 
 | Model | MAE | RMSE | R² | WMAPE | Features |
-|-------|-----|------|-----|-------|----------|
+|---|---|---|---|---|---|
 | **Combined (ST)** | 28.56 | **58.96** | **0.9979** | 3.11% | 55 |
 | Hybrid (ST) | **27.20** | 91.47 | 0.9950 | **2.95%** | 52 |
 | **Combined (LT)** | 119.22 | **220.86** | **0.9705** | 13.00% | 45 |
@@ -187,8 +196,9 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 ### Top Features
 
 **Short-Term Model (Top 10):**
+
 | Rank | Feature | Category |
-|------|---------|----------|
+|---|---|---|
 | 1 | diff_1 | Difference |
 | 2 | diff_336 | Difference (1 week) |
 | 3 | yoy_same_dow_hour_mean | Year-over-Year |
@@ -201,8 +211,9 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 | 10 | day_of_month | Temporal |
 
 **Long-Term Model (Top 10):**
+
 | Rank | Feature | Category |
-|------|---------|----------|
+|---|---|---|
 | 1 | hist_month_dow_hour_mean | Historical Aggregate |
 | 2 | callback_ratio | Channel Mix |
 | 3 | hist_week_of_year_mean | Historical Aggregate |
@@ -215,6 +226,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 | 10 | rolling_mean_336 | Long Rolling |
 
 ### Evaluation Methodology
+
 - **Train/Test Split:** Year-aligned with shared complete months (Jan–Oct 2024 for training, Jan–Oct 2025 for testing) to ensure consistent seasonal distribution
 - **Incomplete Month Handling:** If the last month in the test year has fewer than 28 days of data, it is dropped
 - **Recency Weighting:** Short-term uses linear weights (0.2 + 0.8 × normalized_index); long-term uses quadratic weights (0.1 + 0.9 × normalized_index²)
@@ -226,14 +238,16 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 ## Implementation
 
 ### Hardware Requirements
+
 | Component | Minimum | Recommended |
-|-----------|---------|-------------|
+|---|---|---|
 | **CPU** | 2 cores | 4+ cores |
 | **Memory** | 4GB RAM | 8GB RAM |
 | **Storage** | 200MB | 500MB |
 | **GPU** | Not required | Not required |
 
 ### Software Dependencies
+
 ```
 Python >= 3.9
 numpy >= 1.26.0
@@ -244,8 +258,9 @@ pyarrow >= 14.0.0
 ```
 
 ### Training Configuration
+
 | Parameter | Value |
-|-----------|-------|
+|---|---|
 | Training Data | Jan–Oct 2024 (14,640 intervals) |
 | Test Data | Jan–Oct 2025 (14,592 intervals) |
 | Feature Scaling | RobustScaler (outlier-resistant) |
@@ -259,6 +274,7 @@ pyarrow >= 14.0.0
 ### Model Hyperparameters
 
 **Short-Term (LGBMRegressor):**
+
 ```
 n_estimators=800, learning_rate=0.03, num_leaves=127,
 max_depth=9, min_child_samples=15, subsample=0.8,
@@ -267,6 +283,7 @@ early_stopping_rounds=50
 ```
 
 **Long-Term Ensemble (3× LGBMRegressor):**
+
 ```
 Model A: n_estimators=1500, lr=0.015, num_leaves=200, max_depth=9,
          subsample=0.8, colsample=0.6, min_child=15, seed=42
@@ -280,6 +297,7 @@ All: reg_alpha=1.0, reg_lambda=2.0, early_stopping_rounds=50
 ### Usage
 
 **Training:**
+
 ```python
 from main_module.workforce.combined_forecaster import CombinedForecaster
 
@@ -289,6 +307,7 @@ forecaster.save_model("scripts/combined_forecast_model.pkl")
 ```
 
 **Inference:**
+
 ```python
 forecaster = CombinedForecaster()
 forecaster.load_model("scripts/combined_forecast_model.pkl")
@@ -303,8 +322,9 @@ day_forecast = forecaster.predict_day("2025-03-15")
 ## Model Data
 
 ### Training Data
+
 | Property | Value |
-|----------|-------|
+|---|---|
 | **Source** | Intuit call center records (QuickBooks / SBSEG) |
 | **Primary Dataset** | `dataset_1_call_related.parquet` |
 | **Supplementary** | `dataset_3_historical_outcomes.parquet`, `dataset_4_expert_state_interval.parquet` |
@@ -314,6 +334,7 @@ day_forecast = forecaster.predict_day("2025-03-15")
 | **Test Intervals** | 14,592 (Jan–Oct 2025) |
 
 ### Data Preprocessing Pipeline
+
 ```
 Raw Parquet (call-level)
   → Aggregate to 30-min intervals (count + channel ratios)
@@ -326,13 +347,15 @@ Raw Parquet (call-level)
 ```
 
 ### Known Anomalies Handled
+
 | Date | Description |
-|------|-------------|
+|---|---|
 | 2025-08-29 | Full-day data outage; all intervals interpolated |
 
 ### Multi-Dataset Integration
+
 | Dataset | Features Extracted |
-|---------|-------------------|
+|---|---|
 | dataset_1 (calls) | call_count, inbound_ratio, chat_ratio, callback_ratio |
 | dataset_3 (outcomes) | transfer_rate, fcr_rate (first contact resolution), mean_hold |
 | dataset_4 (expert state) | active_experts, mean_occupancy, total_available_time |
@@ -342,6 +365,7 @@ Raw Parquet (call-level)
 ## Integration
 
 ### System Architecture
+
 The CombinedForecaster is a drop-in replacement for the HybridForecaster in the three-component pipeline:
 
 ```
@@ -355,22 +379,16 @@ SupplyOptimizer.optimize(demand, constraints) → OptimalSupply (headcount)
 ```
 
 ### Deployment Options
+
 | Method | Description |
-|--------|-------------|
+|---|---|
 | **FastAPI Backend** | `src/main_module/api/main.py` — serves REST API at port 8000; loads pickle on startup |
 | **Streamlit Dashboard** | `scripts/dashboard.py` — interactive Python dashboard at port 8501 |
 | **React Dashboard** | `src/main_module/visualization/` — TypeScript frontend calling FastAPI at port 3000 |
 | **Docker Compose** | `docker-compose.yml` — containerized backend + frontend |
 | **CLI Pipeline** | `scripts/run_pipeline.py` — train, forecast, and optimize from command line |
 
-### Migration from HybridForecaster
-Replace the import and class name — the API is identical:
 ```python
-# Before
-from main_module.workforce.hybrid_forecaster import HybridForecaster
-forecaster = HybridForecaster()
-
-# After
 from main_module.workforce.combined_forecaster import CombinedForecaster
 forecaster = CombinedForecaster()
 ```
@@ -380,16 +398,19 @@ forecaster = CombinedForecaster()
 ## Ethics and Safety
 
 ### Privacy Considerations
+
 - No PII used in features or predictions
 - All predictions are aggregated at 30-minute interval level
 - Model state does not contain customer information
 
 ### Fairness
+
 - Predictions are volume-based, not individual-level
 - No demographic features used
 - Applies equally across communication channels (inbound, chat, callback)
 
 ### Transparency
+
 - Full feature list documented above
 - Feature importance computed and reported after each training run
 - Training/test split methodology ensures no data leakage
@@ -397,42 +418,10 @@ forecaster = CombinedForecaster()
 - Known anomalies and their handling are documented
 
 ### Environmental Impact
+
 | Metric | Value |
-|--------|-------|
+|---|---|
 | Training Time | ~53 seconds on Apple M-series CPU |
 | Inference Time | < 5ms per interval prediction |
 | GPU Required | No |
 | Estimated CO₂ | < 0.01 kg per full training |
-
----
-
-## Terms and Links
-
-### Model Card Version
-- **Created:** March 2026
-- **Last Updated:** March 2026
-- **Author:** DSC180 Capstone Team
-
-### Related Resources
-- [Hybrid Forecaster Model Card](MODEL_CARD_HybridModel.md)
-- [Dynamic Weeks Model Card](model_card_forecasting_dynamic_weeks.md)
-- [Single Model Card (Legacy)](MODEL_CARD_SingleModel.md)
-
-### Changelog
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0 | Mar 2026 | Initial release combining HybridForecaster v3 architecture with Dynamic Weeks anomaly smoothing, major/minor holiday split, holiday profile overrides, `is_january`, and `is_post_tax_drop` features |
-
-### Citation
-```
-@misc{intuit_combined_forecaster,
-  title={Combined Demand Forecaster: Multi-Horizon Call Volume Prediction with Anomaly Smoothing and Holiday Overrides},
-  author={DSC180 Capstone Team},
-  year={2026},
-  institution={UC San Diego},
-  note={Dual LightGBM architecture combining HybridForecaster and Dynamic Weeks approaches}
-}
-```
-
-### License
-This model is developed for the UC San Diego DSC180 Capstone project in collaboration with Intuit. Usage is subject to academic and research purposes.
