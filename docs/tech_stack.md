@@ -26,7 +26,6 @@ _This page details the technologies, services, and infrastructure used to delive
 ## Infrastructure & Services
 
 
-
 - **Data Storage**: Local file system tracking for raw and processed datasets (e.g., `data/parquet/`, `data/raw/`). *Note: Large data files are ignored by git to avoid bloating the repository and to comply with data governance.*
 - **Containerisation**: **Docker** and **Docker Desktop** are used to isolate the backend and frontend environments, ensuring consistent behavior across local development and deployment.
 - **Workflow Orchestration**: Automated extraction and processing are managed via Airflow (as detailed in the Data tab). 
