@@ -388,47 +388,26 @@ export default function Dashboard() {
       const wtdAvgWait = wtdWaitTimeSum / wtdIntervals;
       const wtdAvgOccupancy = wtdOccupancySum / wtdIntervals;
 
-      // Calculate previous week same period for comparison
+      // Calculate previous week metrics using the same formula as the past-week view
       const prevWeekStart = new Date(currentWeekStart);
       prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+      const prevWeekSeed = prevWeekStart.getTime();
 
       let prevWtdTotalCalls = 0;
-      let prevWtdServicedCalls = 0;
-      let prevWtdWaitTimeSum = 0;
-      let prevWtdOccupancySum = 0;
-      let prevWtdIntervals = 0;
-
-      for (let dayIndex = 0; dayIndex <= daysElapsed; dayIndex++) {
+      for (let i = 0; i < 7; i++) {
         const day = new Date(prevWeekStart);
-        day.setDate(day.getDate() + dayIndex);
-        const dailyData = getDailyBreakdownData(day);
-
-        const isLastDay = dayIndex === daysElapsed;
-        const maxInterval = isLastDay ? currentTimeSlot.index + 1 : 48;
-
-        for (let i = 0; i < maxInterval; i++) {
-          const calls = dailyData[i].calls;
-          prevWtdTotalCalls += calls;
-
-          const slaSeed = day.getTime() + i * 100;
-          const slaRate = 0.88 + seededRandom(slaSeed) * 0.10;
-          prevWtdServicedCalls += calls * slaRate;
-
-          const waitSeed = day.getTime() + i * 200;
-          const waitTime = 25 + seededRandom(waitSeed) * 15;
-          prevWtdWaitTimeSum += waitTime;
-
-          const occupancySeed = day.getTime() + i * 300;
-          const occupancy = 80 + seededRandom(occupancySeed) * 10;
-          prevWtdOccupancySum += occupancy;
-
-          prevWtdIntervals++;
-        }
+        day.setDate(day.getDate() + i);
+        const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+        const baseVolume = isWeekend ? 6000 : 12500;
+        const seed = day.getFullYear() * 10000 + (day.getMonth() + 1) * 100 + day.getDate();
+        const randomVal = seededRandom(seed);
+        const noise = randomVal * 2000 - 1000;
+        prevWtdTotalCalls += Math.max(4000, Math.floor(baseVolume + noise));
       }
 
-      const prevWtdSLA = (prevWtdServicedCalls / prevWtdTotalCalls) * 100;
-      const prevWtdAvgWait = prevWtdWaitTimeSum / prevWtdIntervals;
-      const prevWtdAvgOccupancy = prevWtdOccupancySum / prevWtdIntervals;
+      const prevWtdSLA = Math.min(98, Math.max(88, 92 + (seededRandom(prevWeekSeed) * 6)));
+      const prevWtdAvgWait = Math.round(35 + (seededRandom(prevWeekSeed + 1) * 25));
+      const prevWtdAvgOccupancy = Math.min(95, Math.max(80, 82 + (seededRandom(prevWeekSeed + 2) * 10)));
 
       const slaChange = wtdSLA - prevWtdSLA;
       const waitChange = wtdAvgWait - prevWtdAvgWait;
@@ -442,29 +421,25 @@ export default function Dashboard() {
         isFuture: false,
         isCurrentWeek: true,
         targetSLA: `Target: ${TARGET_SLA}%`,
-        // prevWeekSLA: `${prevWtdSLA.toFixed(1)}%`,  // TODO: wire to real backend data
-        prevWeekSLA: '0',
+        prevWeekSLA: `${prevWtdSLA.toFixed(1)}%`,
 
         waitTime: `${Math.round(wtdAvgWait)}s`,
         waitChange: `${waitChange >= 0 ? '+' : ''}${Math.round(waitChange)}s`,
         waitPositive: waitChange <= 0,
         targetWaitTime: `Target: ${TARGET_WAIT_TIME}s`,
-        // prevWeekWait: `${Math.round(prevWtdAvgWait)}s`,  // TODO: wire to real backend data
-        prevWeekWait: '0',
+        prevWeekWait: `${prevWtdAvgWait}s`,
 
         occupancy: `${wtdAvgOccupancy.toFixed(1)}%`,
         occupancyChange: `${occupancyChange >= 0 ? '+' : ''}${occupancyChange.toFixed(1)}%`,
         occupancyPositive: occupancyChange >= 0,
         targetOccupancy: `Target: ${TARGET_OCCUPANCY}%`,
-        // prevWeekOccupancy: `${prevWtdAvgOccupancy.toFixed(1)}%`,  // TODO: wire to real backend data
-        prevWeekOccupancy: '0',
+        prevWeekOccupancy: `${prevWtdAvgOccupancy.toFixed(1)}%`,
 
         totalCalls: wtdTotalCalls.toLocaleString(),
         callsChange: `${callsChange >= 0 ? '+' : ''}${callsChange.toLocaleString()}`,
         callsPositive: callsChange >= 0,
         targetCalls: '',
-        // prevWeekCalls: prevWtdTotalCalls.toLocaleString(),  // TODO: wire to real backend data
-        prevWeekCalls: '0'
+        prevWeekCalls: prevWtdTotalCalls.toLocaleString()
       };
     }
 
@@ -659,7 +634,7 @@ export default function Dashboard() {
                     />
                     <MetricCard
                       title="Avg. Waiting Time"
-                      value={weeklyMetrics.isCurrentWeek ? (metricsLoading ? '...' : metrics ? `${Math.round(metrics.avg_wait_time)}s` : metricsError ? '—' : weeklyMetrics.waitTime) : weeklyMetrics.waitTime}
+                      value={weeklyMetrics.waitTime}
                       change={weeklyMetrics.waitChange}
                       isPositive={weeklyMetrics.waitPositive}
                       icon={Clock}
