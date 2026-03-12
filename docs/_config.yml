@@ -27,6 +27,8 @@ kramdown:
   syntax_highlighter: rouge
   math_engine: null
 
+math: mathjax
+
 # Plugins
 plugins:
   - jekyll-remote-theme
@@ -38,11 +40,6 @@ exclude:
   - node_modules
   - README.md
   - LAUNCH_GUIDE.md
-  - MODEL_CARD_SingleModel.md
-  - MODEL_CARD_HybridModel.md
-  - MODEL_CARD_SingleModel.md
-  - model_card_forecasting_4_weeks.md
-  - model_card_forecasting_dynamic_weeks.md
   
 
 # Navigation order (Just the Docs auto-builds nav from front matter)
