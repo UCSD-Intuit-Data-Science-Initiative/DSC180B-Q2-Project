@@ -58,6 +58,7 @@ forecaster: Optional[CombinedForecaster] = None
 agent_analytics: Optional[AgentAnalytics] = None
 agent_router: Optional[AgentRouter] = None
 shift_scheduler: Optional[ShiftScheduler] = None
+_schedule_cache: dict = {}
 
 
 @lru_cache(maxsize=1)
@@ -640,6 +641,69 @@ def get_agent_profile(expert_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _df_to_assignment_dicts(schedule_df):
+    """Vectorised DataFrame-to-dict conversion (avoids iterrows)."""
+    df = schedule_df[
+        ["expert_id", "slot_start_utc", "slot_end_utc", "assignment", "shift_block"]
+    ].copy()
+    df["expert_id"] = df["expert_id"].astype(str)
+    df["slot_start"] = df["slot_start_utc"].dt.strftime("%Y-%m-%dT%H:%M:%S")
+    df["slot_end"] = df["slot_end_utc"].dt.strftime("%Y-%m-%dT%H:%M:%S")
+    return df[["expert_id", "slot_start", "slot_end", "assignment", "shift_block"]].to_dict(
+        orient="records"
+    )
+
+
+def _df_to_coverage_dicts(coverage_df):
+    if len(coverage_df) == 0:
+        return []
+    df = coverage_df.copy()
+    df["slot_start"] = df["slot_start_utc"].dt.strftime("%Y-%m-%dT%H:%M:%S")
+    df["agents_assigned"] = df["agents_assigned"].astype(int)
+    df["predicted_demand"] = df["predicted_demand"].astype(int)
+    df["coverage_ratio"] = df["coverage_ratio"].round(2)
+    return df[["slot_start", "agents_assigned", "predicted_demand", "coverage_ratio"]].to_dict(
+        orient="records"
+    )
+
+
+def _df_to_summary_dicts(summary_df):
+    if len(summary_df) == 0:
+        return []
+    df = summary_df.copy()
+    df["expert_id"] = df["expert_id"].astype(str)
+    df["shift_start"] = df["shift_start"].dt.strftime("%Y-%m-%dT%H:%M:%S")
+    df["shift_end"] = df["shift_end"].dt.strftime("%Y-%m-%dT%H:%M:%S")
+    df["total_slots"] = df["total_slots"].astype(int)
+    df["work_slots"] = df["work_slots"].astype(int)
+    df["break_slots"] = df["break_slots"].astype(int)
+    df["shift_hours"] = df["shift_hours"].astype(float)
+    df["work_hours"] = df["work_hours"].astype(float)
+    return df[
+        ["expert_id", "shift_block", "shift_start", "shift_end",
+         "total_slots", "work_slots", "break_slots", "shift_hours", "work_hours"]
+    ].to_dict(orient="records")
+
+
+def _get_cached_schedule(date, demand_by_slot, max_agents=None):
+    """Cache schedule results to avoid recomputing for the same date."""
+    cache_key = (str(date), max_agents)
+    if cache_key in _schedule_cache:
+        return _schedule_cache[cache_key]
+    ss = load_shift_scheduler()
+    schedule_df = ss.schedule_day(
+        target_date=date,
+        demand_by_slot=demand_by_slot,
+        prefer_high_performers=True,
+        max_agents=max_agents,
+    )
+    _schedule_cache[cache_key] = (ss, schedule_df)
+    if len(_schedule_cache) > 32:
+        oldest = next(iter(_schedule_cache))
+        del _schedule_cache[oldest]
+    return ss, schedule_df
+
+
 @app.get("/api/schedule-with-staffing")
 def get_schedule_with_staffing(
     date: str = Query(..., description="Target date (YYYY-MM-DD)"),
@@ -661,60 +725,24 @@ def get_schedule_with_staffing(
             h_utc = (h_local + 8) % 24
             demand_by_slot[(h_utc, m)] = slot["predicted_calls"]
 
-        ss = load_shift_scheduler()
-        schedule_df = ss.schedule_day(
-            target_date=date,
-            demand_by_slot=demand_by_slot,
-            prefer_high_performers=True,
-            max_agents=max_agents,
+        ss, schedule_df = _get_cached_schedule(
+            date, demand_by_slot, max_agents
         )
 
-        assignments = []
-        coverage = []
-        summary = []
         if len(schedule_df) > 0:
-            for _, row in schedule_df.iterrows():
-                assignments.append(
-                    {
-                        "expert_id": str(row["expert_id"]),
-                        "slot_start": row["slot_start_utc"].isoformat(),
-                        "slot_end": row["slot_end_utc"].isoformat(),
-                        "assignment": row["assignment"],
-                        "shift_block": row["shift_block"],
-                    }
-                )
+            assignments = _df_to_assignment_dicts(schedule_df)
             coverage_df = ss.coverage_report(schedule_df, demand_by_slot)
-            for _, row in coverage_df.iterrows():
-                coverage.append(
-                    {
-                        "slot_start": row["slot_start_utc"].isoformat(),
-                        "agents_assigned": int(row["agents_assigned"]),
-                        "predicted_demand": int(row["predicted_demand"]),
-                        "coverage_ratio": round(
-                            float(row["coverage_ratio"]), 2
-                        ),
-                    }
-                )
+            coverage = _df_to_coverage_dicts(coverage_df)
             summary_df = ss.agent_shift_summary(schedule_df)
-            for _, row in summary_df.iterrows():
-                summary.append(
-                    {
-                        "expert_id": str(row["expert_id"]),
-                        "shift_block": row["shift_block"],
-                        "shift_start": row["shift_start"].isoformat(),
-                        "shift_end": row["shift_end"].isoformat(),
-                        "total_slots": int(row["total_slots"]),
-                        "work_slots": int(row["work_slots"]),
-                        "break_slots": int(row["break_slots"]),
-                        "shift_hours": float(row["shift_hours"]),
-                        "work_hours": float(row["work_hours"]),
-                    }
-                )
+            summary = _df_to_summary_dicts(summary_df)
+        else:
+            assignments, coverage, summary = [], [], []
 
         return {
             "staffing": slots,
             "schedule": {
                 "date": date,
+                "total_active_agents": ss.total_active_agents,
                 "assignments": assignments,
                 "coverage": coverage,
                 "summary": summary,
@@ -732,18 +760,6 @@ def get_schedule(
     ),
 ):
     try:
-        ss = load_shift_scheduler()
-    except Exception as e:
-        import traceback
-
-        print(f"ShiftScheduler load failed: {e}")
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Shift scheduler failed to load: {str(e)}",
-        )
-
-    try:
         slots = run_pipeline_for_date(date, 0.80, 60.0, 0.85)
         demand_by_slot = {}
         for slot in slots:
@@ -752,64 +768,32 @@ def get_schedule(
             h_utc = (h_local + 8) % 24
             demand_by_slot[(h_utc, m)] = slot["predicted_calls"]
 
-        schedule_df = ss.schedule_day(
-            target_date=date,
-            demand_by_slot=demand_by_slot,
-            prefer_high_performers=True,
-            max_agents=max_agents,
+        ss, schedule_df = _get_cached_schedule(
+            date, demand_by_slot, max_agents
         )
+
+        total_active = ss.total_active_agents
 
         if len(schedule_df) == 0:
             return {
                 "date": date,
+                "total_active_agents": total_active,
                 "assignments": [],
                 "coverage": [],
                 "summary": [],
             }
 
-        assignments = []
-        for _, row in schedule_df.iterrows():
-            assignments.append(
-                {
-                    "expert_id": str(row["expert_id"]),
-                    "slot_start": row["slot_start_utc"].isoformat(),
-                    "slot_end": row["slot_end_utc"].isoformat(),
-                    "assignment": row["assignment"],
-                    "shift_block": row["shift_block"],
-                }
-            )
+        assignments = _df_to_assignment_dicts(schedule_df)
 
         coverage_df = ss.coverage_report(schedule_df, demand_by_slot)
-        coverage = []
-        for _, row in coverage_df.iterrows():
-            coverage.append(
-                {
-                    "slot_start": row["slot_start_utc"].isoformat(),
-                    "agents_assigned": int(row["agents_assigned"]),
-                    "predicted_demand": int(row["predicted_demand"]),
-                    "coverage_ratio": round(float(row["coverage_ratio"]), 2),
-                }
-            )
+        coverage = _df_to_coverage_dicts(coverage_df)
 
         summary_df = ss.agent_shift_summary(schedule_df)
-        summary = []
-        for _, row in summary_df.iterrows():
-            summary.append(
-                {
-                    "expert_id": str(row["expert_id"]),
-                    "shift_block": row["shift_block"],
-                    "shift_start": row["shift_start"].isoformat(),
-                    "shift_end": row["shift_end"].isoformat(),
-                    "total_slots": int(row["total_slots"]),
-                    "work_slots": int(row["work_slots"]),
-                    "break_slots": int(row["break_slots"]),
-                    "shift_hours": float(row["shift_hours"]),
-                    "work_hours": float(row["work_hours"]),
-                }
-            )
+        summary = _df_to_summary_dicts(summary_df)
 
         return {
             "date": date,
+            "total_active_agents": total_active,
             "assignments": assignments,
             "coverage": coverage,
             "summary": summary,
@@ -821,6 +805,7 @@ def get_schedule(
 @app.get("/api/schedule/availability")
 def get_agent_availability(
     date: str = Query(..., description="Target date (YYYY-MM-DD)"),
+    limit: int = Query(50, ge=1, le=500, description="Max agents to return"),
 ):
     try:
         ss = load_shift_scheduler()
@@ -832,7 +817,7 @@ def get_agent_availability(
             return {
                 "date": date,
                 "available_agents": [],
-                "unavailable_count": 0,
+                "total_available": 0,
             }
 
         if ss._agent_availability is None:
@@ -842,7 +827,7 @@ def get_agent_availability(
 
         dow_avail = ss._agent_availability[
             ss._agent_availability["dow"] == dow
-        ].copy()
+        ]
 
         agent_scores = (
             dow_avail.groupby("expert_id")
@@ -853,6 +838,9 @@ def get_agent_availability(
             )
             .reset_index()
         )
+        total_available = len(agent_scores)
+
+        agent_scores = agent_scores.nlargest(limit, "mean_work_freq")
 
         if ss._agent_meta is not None:
             agent_scores = agent_scores.merge(
@@ -869,42 +857,28 @@ def get_agent_availability(
                 how="left",
             )
 
-        available = []
-        for _, row in agent_scores.iterrows():
-            available.append(
-                {
-                    "expert_id": str(row["expert_id"]),
-                    "name": f"Agent {str(row['expert_id'])[-4:]}",
-                    "segment": str(
-                        row.get("expert_segment", "Unknown") or "Unknown"
-                    ),
-                    "business_segment": str(
-                        row.get("business_segment", "Unknown") or "Unknown"
-                    ),
-                    "available_hours": round(
-                        safe_float(row["available_hours"]) / 2, 1
-                    ),
-                    "mean_work_freq": round(
-                        safe_float(row["mean_work_freq"]) * 100, 1
-                    ),
-                    "mean_occupancy": round(safe_float(row["mean_occ"]), 1),
-                    "resolution_rate": round(
-                        safe_float(row.get("resolution_rate", 0)), 1
-                    ),
-                }
-            )
+        df = agent_scores.copy()
+        df["expert_id"] = df["expert_id"].astype(str)
+        df["name"] = "Agent " + df["expert_id"].str[-4:]
+        df["segment"] = df.get("expert_segment", pd.Series("Unknown", index=df.index)).fillna("Unknown").astype(str)
+        df["business_segment"] = df.get("business_segment", pd.Series("Unknown", index=df.index)).fillna("Unknown").astype(str)
+        df["available_hours"] = (df["available_hours"] / 2).round(1)
+        df["mean_work_freq"] = (df["mean_work_freq"] * 100).round(1)
+        df["mean_occupancy"] = df["mean_occ"].round(1)
+        df["resolution_rate"] = df.get("resolution_rate", pd.Series(0, index=df.index)).fillna(0).round(1)
+
+        available = df[
+            ["expert_id", "name", "segment", "business_segment",
+             "available_hours", "mean_work_freq", "mean_occupancy", "resolution_rate"]
+        ].to_dict(orient="records")
 
         return {
             "date": date,
             "day_of_week": [
-                "Monday",
-                "Tuesday",
-                "Wednesday",
-                "Thursday",
-                "Friday",
+                "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
             ][dow],
             "available_agents": available,
-            "total_available": len(available),
+            "total_available": total_available,
         }
     except HTTPException:
         raise
