@@ -25,7 +25,8 @@ kramdown:
   input: GFM
   hard_wrap: false
   syntax_highlighter: rouge
-  math_engine: null
+
+math: mathjax
 
 math: mathjax
 

@@ -33,7 +33,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │               DATA PREPROCESSING                           │  │
-│  │  • Anomaly smoothing (known outages interpolated)          │  │
+│  │  • Anomaly smoothing (known outliers interpolated)          │  │
 │  │  • Multi-dataset merge (datasets 1, 3, 4)                 │  │
 │  └────────────────────────────────────────────────────────────┘  │
 │                                                                  │
@@ -81,7 +81,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 | Operational metric features | ✓ | |
 | Year-aligned train/test split | ✓ | |
 | RobustScaler | ✓ | |
-| Anomaly smoothing (outage interpolation) | | ✓ |
+| Anomaly smoothing (outliers interpolation) | | ✓ |
 | Major vs. minor holiday distinction | | ✓ |
 | Holiday profile overrides at inference | | ✓ |
 | `is_january` feature | | ✓ |
@@ -147,7 +147,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 
 ### Benefits Over Predecessor Models
 
-- **Anomaly Robustness:** Known data outages (e.g., 2025-08-29) are automatically smoothed via interpolation, preventing the model from training on corrupted intervals
+- **Anomaly Robustness:** Known data outliers (e.g., 2025-08-29) are automatically smoothed via interpolation, preventing the model from training on corrupted intervals
 - **Holiday Accuracy:** Major holidays (New Year's, Thanksgiving, Christmas) use historical profile lookup instead of ML prediction, which is more reliable for these rare, extreme-pattern days
 - **Richer Calendar Signals:** `is_major_holiday`, `is_january`, and `is_post_tax_drop` capture domain-specific seasonal patterns that the pure HybridForecaster lacked
 - **Lower Extreme Errors:** Anomaly smoothing and holiday overrides produce a lower RMSE than the HybridForecaster, meaning fewer large prediction misses
@@ -160,7 +160,7 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 - **Training Data Requirement:** Requires data spanning at least two years for YoY features
 - **Long-Term Accuracy:** WMAPE of ~13% for ≥7-day forecasts reflects inherent difficulty of long-horizon prediction
 - **Domain Specific:** Optimized for Intuit QB/SBSEG call patterns; requires retraining for other domains
-- **Known Anomalies List:** The `_KNOWN_ANOMALIES` list must be manually updated when new outages are identified
+- **Known Anomalies List:** The `_KNOWN_ANOMALIES` list must be manually updated when new outliers are identified
 
 ### Out-of-Scope Uses
 
@@ -238,20 +238,11 @@ The Combined Demand Forecaster unifies the best elements of two predecessor mode
 - **Incomplete Month Handling:** If the last month in the test year has fewer than 28 days of data, it is dropped
 - **Recency Weighting:** Short-term uses linear weights (0.2 + 0.8 × normalized_index); long-term uses quadratic weights (0.1 + 0.9 × normalized_index²)
 - **Primary Metric:** WMAPE (interpretable for staffing); MAE, RMSE, and R² also reported
-- **Anomaly Smoothing:** Known outage dates are interpolated before training, preventing corrupted data from affecting model quality
+- **Anomaly Smoothing:** Known outlier dates are interpolated before training, preventing corrupted data from affecting model quality
 
 ---
 
 ## Implementation
-
-### Hardware Requirements
-
-| Component | Minimum | Recommended |
-|---|---|---|
-| **CPU** | 2 cores | 4+ cores |
-| **Memory** | 4GB RAM | 8GB RAM |
-| **Storage** | 200MB | 500MB |
-| **GPU** | Not required | Not required |
 
 ### Software Dependencies
 
@@ -275,7 +266,7 @@ pyarrow >= 14.0.0
 | Short-Term Recency Weights | Linear: 0.2 + 0.8 × (i / max_i) |
 | Long-Term Recency Weights | Quadratic: 0.1 + 0.9 × (i / max_i)² |
 | Early Stopping | 50 rounds (both models) |
-| Anomaly Smoothing | Linear interpolation for known outage dates |
+| Anomaly Smoothing | Linear interpolation for known outlier dates |
 | Training Time | ~50–60 seconds on Apple M-series |
 
 ### Model Hyperparameters
@@ -357,7 +348,7 @@ Raw Parquet (call-level)
 
 | Date | Description |
 |---|---|
-| 2025-08-29 | Full-day data outage; all intervals interpolated |
+| 2025-08-29 | Full-day data spike; all intervals interpolated |
 
 ### Multi-Dataset Integration
 
@@ -423,12 +414,3 @@ forecaster = CombinedForecaster()
 - Training/test split methodology ensures no data leakage
 - Year-over-year volume drift explicitly documented
 - Known anomalies and their handling are documented
-
-### Environmental Impact
-
-| Metric | Value |
-|---|---|
-| Training Time | ~53 seconds on Apple M-series CPU |
-| Inference Time | < 5ms per interval prediction |
-| GPU Required | No |
-| Estimated CO₂ | < 0.01 kg per full training |
