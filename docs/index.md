@@ -1,3 +1,9 @@
+---
+layout: default
+title: Introduction
+nav_order: 1
+---
+
 # Workforce Optimization for Intuit's Virtual Expert Platform
 
 **Authors:** 
